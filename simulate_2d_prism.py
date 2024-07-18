@@ -12,7 +12,7 @@
 #     display_name: transformer
 #     language: python
 #     name: python3
-# ---
+# --
 
 # %%
 import numpy as np
@@ -34,8 +34,8 @@ theta_camera = -np.pi/12
 focal_length = 10
 
 # camera image limits
-minim = -2
-maxim = 2
+minim = -1
+maxim = 1
 # image are all at x = -focal_length, y from minim to maxim
 
 nair = 1.0
@@ -54,7 +54,7 @@ distface2 = 20
 
 # distance from the planar object to the last face
 # making this fly-height is too small compared to the prism currently
-distfinal = 20
+distfinal = 15
 
 # constraints on camera parameters
 eps = 1e-6
@@ -733,35 +733,35 @@ pretty_print_proj_info(projinfo['pre_face1_geom'])
 # %%
 # fit from face2pts, refraction only
 
-projinfo['face2pts_refraction'] = {'name': 'Face2 - refraction only'}
-projinfo['face2pts_refraction']['P'],projinfo['face2pts_refraction']['K'],projinfo['face2pts_refraction']['R'],projinfo['face2pts_refraction']['t'] = \
+projinfo['face2_refraction'] = {'name': 'Face2 - refraction only'}
+projinfo['face2_refraction']['P'],projinfo['face2_refraction']['K'],projinfo['face2_refraction']['R'],projinfo['face2_refraction']['t'] = \
   calibrate_camera(face2pts[idxtrain],impts1d[idxtrain])
-impts1d_fit_face2 = project(face2pts,projinfo['face2pts_refraction']['P'])
-projinfo['face2pts_refraction']['err_train'] = np.mean(np.abs(impts1d[idxtrain]-impts1d_fit_face2[idxtrain]))
-projinfo['face2pts_refraction']['err_test'] = np.mean(np.abs(impts1d[idxtest]-impts1d_fit_face2[idxtest]))
-pretty_print_proj_info(projinfo['face2pts_refraction'])
+impts1d_fit_face2 = project(face2pts,projinfo['face2_refraction']['P'])
+projinfo['face2_refraction']['err_train'] = np.mean(np.abs(impts1d[idxtrain]-impts1d_fit_face2[idxtrain]))
+projinfo['face2_refraction']['err_test'] = np.mean(np.abs(impts1d[idxtest]-impts1d_fit_face2[idxtest]))
+pretty_print_proj_info(projinfo['face2_refraction'])
 
 # %%
 # fit from face3pts, refraction only
 
-projinfo['face3pts_refraction'] = {'name': 'Face3 - refraction only'}
-projinfo['face3pts_refraction']['P'],projinfo['face3pts_refraction']['K'],projinfo['face3pts_refraction']['R'],projinfo['face3pts_refraction']['t'] = \
+projinfo['face3_refraction'] = {'name': 'Face3 - refraction only'}
+projinfo['face3_refraction']['P'],projinfo['face3_refraction']['K'],projinfo['face3_refraction']['R'],projinfo['face3_refraction']['t'] = \
   calibrate_camera(face3pts[idxtrain],impts1d[idxtrain])
-impts1d_fit_face3 = project(face3pts,projinfo['face3pts_refraction']['P'])
-projinfo['face3pts_refraction']['err_train'] = np.mean(np.abs(impts1d[idxtrain]-impts1d_fit_face3[idxtrain]))
-projinfo['face3pts_refraction']['err_test'] = np.mean(np.abs(impts1d[idxtest]-impts1d_fit_face3[idxtest]))
-pretty_print_proj_info(projinfo['face3pts_refraction'])
+impts1d_fit_face3 = project(face3pts,projinfo['face3_refraction']['P'])
+projinfo['face3_refraction']['err_train'] = np.mean(np.abs(impts1d[idxtrain]-impts1d_fit_face3[idxtrain]))
+projinfo['face3_refraction']['err_test'] = np.mean(np.abs(impts1d[idxtest]-impts1d_fit_face3[idxtest]))
+pretty_print_proj_info(projinfo['face3_refraction'])
 
 # %%
 # fit from face2pts - prism
 
-projinfo['face2pts_prism'] = {'name': 'Prism diagonal face'}
-projinfo['face2pts_prism']['P'],projinfo['face2pts_prism']['K'],projinfo['face2pts_prism']['R'],projinfo['face2pts_prism']['t'] = \
+projinfo['face2_prism'] = {'name': 'Prism diagonal face'}
+projinfo['face2_prism']['P'],projinfo['face2_prism']['K'],projinfo['face2_prism']['R'],projinfo['face2_prism']['t'] = \
   calibrate_camera(face2ptsp[idxtrain],impts1d[idxtrain])
-impts1d_fit_face2_prism = project(face2ptsp,projinfo['face2pts_prism']['P'])
-projinfo['face2pts_prism']['err_train'] = np.mean(np.abs(impts1d[idxtrain]-impts1d_fit_face2_prism[idxtrain]))
-projinfo['face2pts_prism']['err_test'] = np.mean(np.abs(impts1d[idxtest]-impts1d_fit_face2_prism[idxtest]))
-pretty_print_proj_info(projinfo['face2pts_prism'])
+impts1d_fit_face2_prism = project(face2ptsp,projinfo['face2_prism']['P'])
+projinfo['face2_prism']['err_train'] = np.mean(np.abs(impts1d[idxtrain]-impts1d_fit_face2_prism[idxtrain]))
+projinfo['face2_prism']['err_test'] = np.mean(np.abs(impts1d[idxtest]-impts1d_fit_face2_prism[idxtest]))
+pretty_print_proj_info(projinfo['face2_prism'])
 
 # %%
 # fit from face3pts - prism
@@ -770,26 +770,26 @@ isvalid_face3 = ~np.isnan(face3ptsp).any(axis=1)
 face3ptsp_valid = face3ptsp[isvalid_face3]
 impts1d_valid_face3 = impts1d[isvalid_face3]
 
-projinfo['face3pts_prism'] = {'name': 'Prism top face'}
-projinfo['face3pts_prism']['P'],projinfo['face3pts_prism']['K'],projinfo['face3pts_prism']['R'],projinfo['face3pts_prism']['t'] = \
+projinfo['face3_prism'] = {'name': 'Prism top face'}
+projinfo['face3_prism']['P'],projinfo['face3_prism']['K'],projinfo['face3_prism']['R'],projinfo['face3_prism']['t'] = \
   calibrate_camera(face3ptsp_valid[idxtrain],impts1d_valid_face3[idxtrain])
-impts1d_fit_face3_prism_valid = project(face3ptsp_valid,projinfo['face3pts_prism']['P'])
-projinfo['face3pts_prism']['err_train'] = np.mean(np.abs(impts1d_valid_face3[idxtrain]-impts1d_fit_face3_prism_valid[idxtrain]))
-projinfo['face3pts_prism']['err_test'] = np.mean(np.abs(impts1d_valid_face3[idxtest]-impts1d_fit_face3_prism_valid[idxtest]))
-pretty_print_proj_info(projinfo['face3pts_prism'])
+impts1d_fit_face3_prism_valid = project(face3ptsp_valid,projinfo['face3_prism']['P'])
+projinfo['face3_prism']['err_train'] = np.mean(np.abs(impts1d_valid_face3[idxtrain]-impts1d_fit_face3_prism_valid[idxtrain]))
+projinfo['face3_prism']['err_test'] = np.mean(np.abs(impts1d_valid_face3[idxtest]-impts1d_fit_face3_prism_valid[idxtest]))
+pretty_print_proj_info(projinfo['face3_prism'])
 
 # %%
 # fit to face3ptsp and flip(impts1d) - prism
 
 # flip 
 impts1d_valid_face3_flip = -impts1d_valid_face3
-projinfo['face3pts_prism_flip'] = {'name': 'Prism top face, image flipped'}
-projinfo['face3pts_prism_flip']['P'],projinfo['face3pts_prism_flip']['K'],projinfo['face3pts_prism_flip']['R'],projinfo['face3pts_prism_flip']['t'] = \
+projinfo['face3_prism_flip'] = {'name': 'Prism top face, image flipped'}
+projinfo['face3_prism_flip']['P'],projinfo['face3_prism_flip']['K'],projinfo['face3_prism_flip']['R'],projinfo['face3_prism_flip']['t'] = \
   calibrate_camera(face3ptsp_valid[idxtrain],impts1d_valid_face3_flip[idxtrain])
-impts1d_fit_face3_prism_flip_valid = project(face3ptsp_valid,projinfo['face3pts_prism_flip']['P'])
-projinfo['face3pts_prism_flip']['err_train'] = np.mean(np.abs(impts1d_valid_face3_flip[idxtrain]-impts1d_fit_face3_prism_flip_valid[idxtrain]))
-projinfo['face3pts_prism_flip']['err_test'] = np.mean(np.abs(impts1d_valid_face3_flip[idxtest]-impts1d_fit_face3_prism_flip_valid[idxtest]))
-pretty_print_proj_info(projinfo['face3pts_prism_flip'])
+impts1d_fit_face3_prism_flip_valid = project(face3ptsp_valid,projinfo['face3_prism_flip']['P'])
+projinfo['face3_prism_flip']['err_train'] = np.mean(np.abs(impts1d_valid_face3_flip[idxtrain]-impts1d_fit_face3_prism_flip_valid[idxtrain]))
+projinfo['face3_prism_flip']['err_test'] = np.mean(np.abs(impts1d_valid_face3_flip[idxtest]-impts1d_fit_face3_prism_flip_valid[idxtest]))
+pretty_print_proj_info(projinfo['face3_prism_flip'])
 
 # %%
 # fit from face4pts - prism
@@ -798,25 +798,25 @@ isvalid_face4 = ~np.isnan(face4ptsp).any(axis=1)
 face4ptsp_valid = face4ptsp[isvalid_face4]
 impts1d_valid_face4 = impts1d[isvalid_face4]
 
-projinfo['face4pts_prism'] = {'name': 'Above prism'}
-projinfo['face4pts_prism']['P'],projinfo['face4pts_prism']['K'],projinfo['face4pts_prism']['R'],projinfo['face4pts_prism']['t'] = \
+projinfo['face4_prism'] = {'name': 'Above prism'}
+projinfo['face4_prism']['P'],projinfo['face4_prism']['K'],projinfo['face4_prism']['R'],projinfo['face4_prism']['t'] = \
   calibrate_camera(face4ptsp_valid[idxtrain],impts1d_valid_face4[idxtrain])
-impts1d_fit_face4_prism_valid = project(face4ptsp_valid,projinfo['face4pts_prism']['P'])
-projinfo['face4pts_prism']['err_train'] = np.mean(np.abs(impts1d_valid_face4[idxtrain]-impts1d_fit_face4_prism_valid[idxtrain]))
-projinfo['face4pts_prism']['err_test'] = np.mean(np.abs(impts1d_valid_face4[idxtest]-impts1d_fit_face4_prism_valid[idxtest]))
-pretty_print_proj_info(projinfo['face4pts_prism'])
+impts1d_fit_face4_prism_valid = project(face4ptsp_valid,projinfo['face4_prism']['P'])
+projinfo['face4_prism']['err_train'] = np.mean(np.abs(impts1d_valid_face4[idxtrain]-impts1d_fit_face4_prism_valid[idxtrain]))
+projinfo['face4_prism']['err_test'] = np.mean(np.abs(impts1d_valid_face4[idxtest]-impts1d_fit_face4_prism_valid[idxtest]))
+pretty_print_proj_info(projinfo['face4_prism'])
 
 # %%
 # fit from impts_flip to face4pts - prism
 
 impts1d_valid_face4_flip = -impts1d_valid_face4
-projinfo['face4pts_prism_flip'] = {'name': 'Above prism, image flipped'}
-projinfo['face4pts_prism_flip']['P'],projinfo['face4pts_prism_flip']['K'],projinfo['face4pts_prism_flip']['R'],projinfo['face4pts_prism_flip']['t'] = \
+projinfo['face4_prism_flip'] = {'name': 'Above prism, image flipped'}
+projinfo['face4_prism_flip']['P'],projinfo['face4_prism_flip']['K'],projinfo['face4_prism_flip']['R'],projinfo['face4_prism_flip']['t'] = \
   calibrate_camera(face4ptsp_valid[idxtrain],impts1d_valid_face4_flip[idxtrain])
-impts1d_fit_face4_prism_flip_valid = project(face4ptsp_valid,projinfo['face4pts_prism_flip']['P'])
-projinfo['face4pts_prism_flip']['err_train'] = np.mean(np.abs(impts1d_valid_face4_flip[idxtrain]-impts1d_fit_face4_prism_flip_valid[idxtrain]))
-projinfo['face4pts_prism_flip']['err_test'] = np.mean(np.abs(impts1d_valid_face4_flip[idxtest]-impts1d_fit_face4_prism_flip_valid[idxtest]))
-pretty_print_proj_info(projinfo['face4pts_prism_flip'])
+impts1d_fit_face4_prism_flip_valid = project(face4ptsp_valid,projinfo['face4_prism_flip']['P'])
+projinfo['face4_prism_flip']['err_train'] = np.mean(np.abs(impts1d_valid_face4_flip[idxtrain]-impts1d_fit_face4_prism_flip_valid[idxtrain]))
+projinfo['face4_prism_flip']['err_test'] = np.mean(np.abs(impts1d_valid_face4_flip[idxtest]-impts1d_fit_face4_prism_flip_valid[idxtest]))
+pretty_print_proj_info(projinfo['face4_prism_flip'])
 
 # %% 
 # compare
@@ -838,18 +838,41 @@ print(tabulate(table, headers=['', 'fx', 'cx', 'theta', 'tx', 'ty']))
 # %% 
 # plot camera locations
 
-# fig,ax = plt.subplots(1,1,figsize=(6,10))
-# ax.plot(0,0,'ks-',label='True')
-# ax.plot([0,np.cos(theta_camera)],[0,np.sin(theta_camera)],'k-')
-# ax.plot()
-# for v in projinfo.values():
-#   if 'K' in v:
-#     theta = np.arctan2(v['R'][1,0],v['R'][0,0])
-#     t = v['t']
-#     ax.plot(t[0],t[1],'o-',label=v['name'])
-#     ax.plot([t[0],t[0]+np.cos(theta)],[t[1],t[1]+np.sin(theta)],'-')
+cameraaxislength = 10
+fig,ax = plt.subplots(2,1,figsize=(6,10))
+ax[0].cla()
+ax[0].plot(0,0,'ks-',label='True')
+ax[0].plot([0,cameraaxislength*np.cos(theta_camera)],[0,cameraaxislength*np.sin(theta_camera)],'k-')
+ax[0].plot(face3pts[:,0],face3pts[:,1],'^k')
 
-# ax.legend()
+keysrefraction = ['pre_face1_ptrue','face1','face2_refraction','face3_refraction']
+
+for k in keysrefraction:
+  v = projinfo[k]
+  theta = np.pi/2-np.arctan2(v['R'][1,0],v['R'][0,0])
+  t = v['t']
+  ax[0].plot(-t[0],-t[1],'o-',label=k)
+  ax[0].plot([-t[0],-t[0]+cameraaxislength*np.cos(theta)],[-t[1],-t[1]+cameraaxislength*np.sin(theta)],'-')
+
+ax[0].axis('equal')
+ax[0].legend()
+
+keysprism = ['pre_face1_ptrue','face1','face2_prism','face3_prism','face3_prism_flip','face4_prism','face4_prism_flip']
+
+ax[1].cla()
+ax[1].plot(0,0,'ks-',label='True')
+ax[1].plot([0,cameraaxislength*np.cos(theta_camera)],[0,cameraaxislength*np.sin(theta_camera)],'k-')
+ax[1].plot(face4ptsp_valid[:,0],face4ptsp_valid[:,1],'^k')
+
+for k in keysprism:
+  v = projinfo[k]
+  theta = np.pi/2-np.arctan2(v['R'][1,0],v['R'][0,0])
+  t = v['t']
+  ax[1].plot(-t[0],-t[1],'o-',label=k)
+  ax[1].plot([-t[0],-t[0]+cameraaxislength*np.cos(theta)],[-t[1],-t[1]+cameraaxislength*np.sin(theta)],'-')
+
+ax[1].axis('equal')
+ax[1].legend()
 
 # %%
 plt.show()
