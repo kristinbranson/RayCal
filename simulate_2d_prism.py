@@ -31,11 +31,11 @@ npts = 20
 theta_camera = -np.pi/12
 
 # camera focal length
-focal_length = 10
+focal_length = 25
 
 # camera image limits
-minim = -1
-maxim = 1
+minim = -10
+maxim = 10
 # image are all at x = -focal_length, y from minim to maxim
 
 nair = 1.0
@@ -839,6 +839,8 @@ print(tabulate(table, headers=['', 'fx', 'cx', 'theta', 'tx', 'ty']))
 # plot camera locations
 
 cameraaxislength = 10
+cameracolors = plt.cm.tab10.colors
+
 fig,ax = plt.subplots(2,1,figsize=(6,10))
 ax[0].cla()
 ax[0].plot(0,0,'ks-',label='True')
@@ -847,12 +849,12 @@ ax[0].plot(face3pts[:,0],face3pts[:,1],'^k')
 
 keysrefraction = ['pre_face1_ptrue','face1','face2_refraction','face3_refraction']
 
-for k in keysrefraction:
+for i,k in enumerate(keysrefraction):
   v = projinfo[k]
   theta = np.pi/2-np.arctan2(v['R'][1,0],v['R'][0,0])
   t = v['t']
-  ax[0].plot(-t[0],-t[1],'o-',label=k)
-  ax[0].plot([-t[0],-t[0]+cameraaxislength*np.cos(theta)],[-t[1],-t[1]+cameraaxislength*np.sin(theta)],'-')
+  ax[0].plot(-t[0],-t[1],'o-',color=cameracolors[i],label=k)
+  ax[0].plot([-t[0],-t[0]+cameraaxislength*np.cos(theta)],[-t[1],-t[1]+cameraaxislength*np.sin(theta)],'-',color=cameracolors[i])
 
 ax[0].axis('equal')
 ax[0].legend()
@@ -864,15 +866,16 @@ ax[1].plot(0,0,'ks-',label='True')
 ax[1].plot([0,cameraaxislength*np.cos(theta_camera)],[0,cameraaxislength*np.sin(theta_camera)],'k-')
 ax[1].plot(face4ptsp_valid[:,0],face4ptsp_valid[:,1],'^k')
 
-for k in keysprism:
+for i,k in enumerate(keysprism):
   v = projinfo[k]
   theta = np.pi/2-np.arctan2(v['R'][1,0],v['R'][0,0])
   t = v['t']
-  ax[1].plot(-t[0],-t[1],'o-',label=k)
-  ax[1].plot([-t[0],-t[0]+cameraaxislength*np.cos(theta)],[-t[1],-t[1]+cameraaxislength*np.sin(theta)],'-')
+  ax[1].plot(-t[0],-t[1],'o-',label=k,color=cameracolors[i])
+  ax[1].plot([-t[0],-t[0]+cameraaxislength*np.cos(theta)],[-t[1],-t[1]+cameraaxislength*np.sin(theta)],'-',color=cameracolors[i])
 
 ax[1].axis('equal')
 ax[1].legend()
+fig.tight_layout()
 
 # %%
 plt.show()
