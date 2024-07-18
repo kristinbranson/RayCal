@@ -28,10 +28,10 @@ plt.ion()
 npts = 20
 
 # angle of camera
-theta_camera = -np.pi/6
+theta_camera = -np.pi/12
 
 # camera focal length
-focal_length = 4
+focal_length = 10
 
 # camera image limits
 minim = -2
@@ -42,7 +42,7 @@ nair = 1.0
 nglass = 1.5
 
 # distance from the camera to the first face
-distface1 = 10
+distface1 = 150
 
 # distance along diagonal from the last ray to the bottom of the prism
 distprismbottom = 5
@@ -50,10 +50,11 @@ distprismbottom = 5
 distprismtop = 2
 
 # for refractive only case, thickness of the glass
-distface2 = 5
+distface2 = 20
 
 # distance from the planar object to the last face
-distfinal = 3
+# making this fly-height is too small compared to the prism currently
+distfinal = 20
 
 # constraints on camera parameters
 eps = 1e-6
@@ -61,6 +62,8 @@ fxmin = focal_length - eps
 fxmax = focal_length + eps
 cxmin = -eps
 cxmax = eps
+
+plotnormallength = distface2/5
 
 # %%
 # create the image
@@ -249,7 +252,7 @@ face1pts = intersection_lines(line1start=[0,0],
 
 # plot points on first face
 for i in range(npts):
-  ax[0].plot([xface1-1,xface1+1],[face1pts[i,1],face1pts[i,1]],'k:')
+  ax[0].plot([xface1-plotnormallength,xface1+plotnormallength],[face1pts[i,1],face1pts[i,1]],'k:')
   ax[0].plot([impts[i,0],face1pts[i,0]],[impts[i,1],face1pts[i,1]],'-',color=colors[i])
   ax[0].plot(face1pts[i,0],face1pts[i,1],'o',color=colors[i])
 _ = ax[0].plot([xface1,xface1],[np.min(face1pts[:,1]),np.max(face1pts[:,1])],'--',color='black')
@@ -281,9 +284,9 @@ face2pts = intersection_lines(line1start=face1pts,
 
 # plot
 for i in range(npts):
-  ax[0].plot([xface2-1,xface2+1],[face2pts[i,1],face2pts[i,1]],'k:')
+  ax[0].plot([xface2-plotnormallength,xface2+plotnormallength],[face2pts[i,1],face2pts[i,1]],'k:')
   ax[0].plot([face1pts[i,0],face2pts[i,0]],[face1pts[i,1],face2pts[i,1]],'-',color=colors[i])
-  ax[0].plot(face2pts[i,0],face2pts[i,1],'o',color=colors[i])
+  ax[0].plot(face2pts[i,0],face2pts[i,1],'.',color=colors[i])
 _ = ax[0].plot([xface2,xface2],[np.min(face2pts[:,1]),np.max(face2pts[:,1])],'--',color='black')
 
 # %%
@@ -305,7 +308,7 @@ face3pts = intersection_lines(line1start=face2pts,
 # plot
 for i in range(npts):
   ax[0].plot([face2pts[i,0],face3pts[i,0]],[face2pts[i,1],face3pts[i,1]],'-',color=colors[i])
-  ax[0].plot(face3pts[i,0],face3pts[i,1],'o',color=colors[i])
+  ax[0].plot(face3pts[i,0],face3pts[i,1],'.',color=colors[i])
 _ = ax[0].plot([xface3,xface3],[np.min(face3pts[:,1]),np.max(face3pts[:,1])],'--',color='black')
 
 # %%
@@ -356,7 +359,7 @@ face2ptsp = intersection_lines(line1start=face1pts,
 
 # plot
 for i in range(npts):
-  ax[0].plot([xface1-1,xface1+1],[face1pts[i,1],face1pts[i,1]],'k:')
+  ax[0].plot([xface1-plotnormallength,xface1+plotnormallength],[face1pts[i,1],face1pts[i,1]],'k:')
   ax[0].plot([face1pts[i,0],face2ptsp[i,0]],[face1pts[i,1],face2ptsp[i,1]],'-',color=colors[i])
   ax[0].plot(face2ptsp[i,0],face2ptsp[i,1],'o',color=colors[i])
 
@@ -384,9 +387,9 @@ face3ptsp = intersection_lines(line1start=face2ptsp,
 
 # plot
 for i in range(npts):
-  ax[0].plot([face2ptsp[i,0]-1,face2ptsp[i,0]+1],[face2ptsp[i,1]+1,face2ptsp[i,1]-1],'k:')
+  ax[0].plot([face2ptsp[i,0]-plotnormallength,face2ptsp[i,0]+plotnormallength],[face2ptsp[i,1]+1,face2ptsp[i,1]-1],'k:')
   ax[0].plot([face2ptsp[i,0],face3ptsp[i,0]],[face2ptsp[i,1],face3ptsp[i,1]],'-',color=colors[i])
-  ax[0].plot(face3ptsp[i,0],face3ptsp[i,1],'o',color=colors[i])
+  ax[0].plot(face3ptsp[i,0],face3ptsp[i,1],'.',color=colors[i])
 
 # %%
 # plot points along object after the prism
@@ -410,9 +413,9 @@ face4ptsp = intersection_lines(line1start=face3ptsp,
                               issegment2=False)
 # plot
 for i in range(npts):
-  ax[0].plot([face3ptsp[i,0],face3ptsp[i,0]],[face3ptsp[i,1]-1,face3ptsp[i,1]+1],'k:')
+  ax[0].plot([face3ptsp[i,0],face3ptsp[i,0]],[face3ptsp[i,1]-plotnormallength,face3ptsp[i,1]+plotnormallength],'k:')
   ax[0].plot([face3ptsp[i,0],face4ptsp[i,0]],[face3ptsp[i,1],face4ptsp[i,1]],'-',color=colors[i])
-  ax[0].plot(face4ptsp[i,0],face4ptsp[i,1],'o',color=colors[i])
+  ax[0].plot(face4ptsp[i,0],face4ptsp[i,1],'.',color=colors[i])
 _ = ax[0].plot([np.min(face4ptsp[:,0]),np.max(face4ptsp[:,0])],[maxy+distfinal,maxy+distfinal],'--',color='black')
 
 # %%
@@ -831,6 +834,22 @@ for v in projinfo.values():
     table.append(row)
 
 print(tabulate(table, headers=['', 'fx', 'cx', 'theta', 'tx', 'ty']))
+
+# %% 
+# plot camera locations
+
+# fig,ax = plt.subplots(1,1,figsize=(6,10))
+# ax.plot(0,0,'ks-',label='True')
+# ax.plot([0,np.cos(theta_camera)],[0,np.sin(theta_camera)],'k-')
+# ax.plot()
+# for v in projinfo.values():
+#   if 'K' in v:
+#     theta = np.arctan2(v['R'][1,0],v['R'][0,0])
+#     t = v['t']
+#     ax.plot(t[0],t[1],'o-',label=v['name'])
+#     ax.plot([t[0],t[0]+np.cos(theta)],[t[1],t[1]+np.sin(theta)],'-')
+
+# ax.legend()
 
 # %%
 plt.show()
