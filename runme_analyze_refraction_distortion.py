@@ -53,6 +53,9 @@ def find_intersection_with_camera_sensor(focal_length_, camera_rotation_, line_s
     return camera_intersection_x, camera_intersection_y
 
 def get_slope_of_refracted_line(prism_camera_distance_, object_point_, y0_solution_, prism_object_distance_):
+    """
+    Returns slope of the refracted line that passes through the camera pin-hole 
+    """
     y = prism_camera_distance_ * (object_point_ - y0_solution_) / prism_object_distance_
     line_slope_ = y / prism_camera_distance_
     return line_slope_
@@ -70,25 +73,30 @@ object_height = Config.object_height
 pixel_scaling_factor = 1
 camera_rotation = Config.theta_camera # rotated downwards is positive
 
-with open('/groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/refraction_model/calprism/data/simulation_coordinates.pkl', 'rb') as f:
-    data = pickle.load(f)
-
 object_points = np.linspace(-object_height, object_height, num_points)
 prism_object_distances = np.linspace(0.6 * prism_object_distance_config, 1.6 * prism_object_distance_config, num_points)
-#object_points = data[1][:,1]
-y0_kristins_simulation = data[2][:,1]
-image_points_kristins_simulation_world = data[0]
-image_points_kristins_simulation_pixels = np.linspace(-Config.image_height, 0, num_points) * pixel_scaling_factor
+
 image_points_pixels = np.zeros(len(object_points))
+image_points_pixels_not_refracted = np.zeros(len(object_points))
 image_points_world = np.zeros((len(object_points), 2))
+image_points_world_not_refracted = np.zeros((len(object_points), 2))
 
 for point_id, (object_point, prism_object_distance) in enumerate(zip(object_points, prism_object_distances)):
     y0_initial_guess = get_initial_guess(object_point, prism_object_distance)
     y0_solution = least_squares(refraction_model, y0_initial_guess, args=(prism_object_distance,)).x   
+    
+    # For refracted ray
     line_slope = get_slope_of_refracted_line(prism_camera_distance, object_point, y0_solution, prism_object_distance)
     camera_intersection_x, camera_intersection_y = find_intersection_with_camera_sensor(focal_length, camera_rotation, line_slope)
     image_points_world[point_id,:] = np.array([camera_intersection_x, camera_intersection_y])[:,0]
     image_points_pixels[point_id] = convert_world_to_pixel_coordinates(camera_intersection_x, camera_intersection_y, camera_rotation)
+
+    # For non-refracted ray (no prism is present)
+    line_slope = object_point / (prism_object_distance + prism_thickness + prism_camera_distance)
+    camera_intersection_x, camera_intersection_y = find_intersection_with_camera_sensor(focal_length, camera_rotation, line_slope)
+    image_points_world_not_refracted[point_id,:] = np.array([camera_intersection_x, camera_intersection_y])
+    #image_points_pixels_not_refracted[point_id] = convert_world_to_pixel_coordinates(camera_intersection_x, camera_intersection_y, camera_rotation)
+
 
 fig, ax = plt.subplots(3,1,figsize=(13,20))
 colors = plt.get_cmap('jet')(np.linspace(0, 1.0, num_points))
@@ -119,26 +127,28 @@ plt.savefig('fig1.png')
 plt.axis('equal')
 
 plt.figure(figsize=(25,25))
+plt.title('Object points and Image points', fontsize=30)
 for i in range(num_points):
-    plt.scatter(image_points_world[i,0], image_points_world[i,1], s=8, marker='o', color=colors[i])
-    plt.scatter(prism_object_distances[i], object_points[i], s=35, marker='x', color=colors[i])
-plt.xlabel('x', fontsize=34)
-plt.ylabel('y', fontsize=34)
+    plt.scatter(image_points_world[i,0], image_points_world[i,1], s=2, marker='o', color=colors[i])
+    plt.scatter(prism_object_distances[i], object_points[i], s=4, marker='x', color=colors[i])
+plt.xlabel('X (cm)', fontsize=40)
+plt.ylabel('Y (cm)', fontsize=40)
 plt.xticks(fontsize=28)
 plt.yticks(fontsize=28)
-plt.legend(['Image Points', 'Object Points'], fontsize=24)
+plt.legend(['Image', 'Object'])
 plt.savefig('fig2.png')
-plt.axis('equal')
 
-plt.figure(figsize=(25,25))
+plt.figure(figsize=(10,10))
+plt.title('Distorted v/s non-distorted image points', fontsize=32)
 for i in range(num_points):
-    plt.plot(image_points_world[i,0], image_points_world[i,1], 'o', color=colors[i], markersize=4)
-    plt.plot(image_points_kristins_simulation_world[i,0], image_points_kristins_simulation_world[i,1],
-     'x', color=colors[i], markersize=4)
-plt.xlabel('x', fontsize=24)
-plt.ylabel('y', fontsize=24)
-plt.xticks(fontsize=18)
-plt.yticks(fontsize=18)
-plt.legend(['Forward', 'Backward'])
+    plt.scatter(image_points_world[i,0], image_points_world[i,1], s=15, marker='D', color=colors[i],
+    facecolors='none')
+    plt.scatter(image_points_world_not_refracted[i,0], image_points_world_not_refracted[i,1], s=15,
+     marker='s', color=colors[i])
+plt.xlabel('X (cm)', fontsize=30)
+plt.ylabel('Y (cm)', fontsize=30)
+plt.xticks(fontsize=20)
+plt.yticks(fontsize=20)
+plt.legend(['Refracted', 'Not-refracted'], fontsize=20)
 plt.axis('equal')
-#plt.savefig('fig2.png')
+plt.savefig('fig3.png')
