@@ -2,10 +2,12 @@
 from ray_tracing_simulator import Prism, Ray, Plane, OpticalPlane, visualize_camera_configuration
 import matplotlib.pyplot as plt
 import numpy as np  
+import torch
+pi = torch.tensor(np.pi)
 
 # %% Testing class Plane
 # Single plane
-plane = Plane(alpha=np.pi/3, beta=np.pi/6, gamma=np.pi/10, center=[1.,0.,0.], a=1.,b=1.)
+plane = Plane(alpha=pi/3, beta=pi/6, gamma=pi/10, center=[1.,0.,0.], a=1.,b=1.)
 _, ax = plane.visualize()
 ax.set_aspect('equal', adjustable='datalim')   
 
@@ -18,7 +20,7 @@ ax.set_aspect('equal', adjustable='datalim')
 
 # %% Testing class OpticalPlane with a single ray refraction 
 # Optical plane refraction
-plane = OpticalPlane(alpha=np.pi/3, beta=np.pi/6, gamma=np.pi/10, center=[0.,0.,0.], a=1.,b=1., 
+plane = OpticalPlane(alpha=pi/3, beta=pi/6, gamma=pi/10, center=[0.,0.,0.], a=1.,b=1., 
               refractive_idx_1=1., refractive_idx_2=1.5)
 incident_ray = Ray(origin=[-0.5,0.,0.], direction=[1.,0.,0.])
 refracted_ray = plane.refract_ray(incident_ray)
@@ -59,7 +61,7 @@ ax.set_aspect('equal', adjustable='datalim')
 plt.show()
 
 # %% Test camera configuration
-pixels = np.random.rand(2, 10)
-pixels = pixels * np.array([1918, 1200])[:, None]
+pixels = torch.rand(2, 10)
+pixels = pixels * torch.tensor([1918, 1200])[:, None]
 _, _, prism, camera = visualize_camera_configuration(pixels=pixels)
 # %%

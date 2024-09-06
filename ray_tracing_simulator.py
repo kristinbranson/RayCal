@@ -12,6 +12,8 @@ mpl.use('TkAgg') # Use this if working on the PC
 #mpl.use('QtAgg') # Use this if working remotely with NoMachine
 plt.ion()
 
+pi = torch.tensor(np.pi)
+
 def rotx(angle):
     """
     Rotation matrix around x-axis.
@@ -20,9 +22,11 @@ def rotx(angle):
     Returns:
     - rotation (np.array): Rotation matrix.
     """
-    rotation = np.array([[1, 0, 0],
-                          [0, np.cos(angle), -np.sin(angle)],
-                          [0, np.sin(angle), np.cos(angle)]])
+    if not isinstance(angle, torch.Tensor):
+        angle = torch.tensor(angle)
+    rotation = torch.tensor([[1, 0, 0],
+                          [0, torch.cos(angle), -torch.sin(angle)],
+                          [0, torch.sin(angle), torch.cos(angle)]])
     return rotation
 
 def roty(angle):
@@ -33,9 +37,11 @@ def roty(angle):
     Returns:
     - rotation (np.array): Rotation matrix.
     """
-    rotation = np.array([[np.cos(angle), 0, np.sin(angle)],
+    if not isinstance(angle, torch.Tensor):
+        angle = torch.tensor(angle)
+    rotation = torch.tensor([[torch.cos(angle), 0, torch.sin(angle)],
                           [0, 1, 0],
-                          [-np.sin(angle), 0, np.cos(angle)]])
+                          [-torch.sin(angle), 0, torch.cos(angle)]])
     return rotation
 
 def rotz(angle):
@@ -44,10 +50,12 @@ def rotz(angle):
     Parameters:
     - angle (float): Angle of rotation.
     Returns:
-    - rotation (np.array): Rotation matrix.
+    - rotation (torch.tensor): Rotation matrix.
     """
-    rotation = np.array([[np.cos(angle), -np.sin(angle), 0],
-                          [np.sin(angle), np.cos(angle), 0],
+    if not isinstance(angle, torch.Tensor):
+        angle = torch.tensor(angle)
+    rotation = torch.tensor([[torch.cos(angle), -torch.sin(angle), 0],
+                          [torch.sin(angle), torch.cos(angle), 0],
                           [0, 0, 1]])
     return rotation
 
@@ -59,18 +67,18 @@ class Ray():
         - origin (2-D list): Origin of the ray.
         - direction (2-D list): Direction of the ray.
         """
-        if not isinstance(origin, np.ndarray):
-            origin = np.array(origin)
+        if not isinstance(origin, torch.Tensor):
+            origin = torch.tensor(origin)
             if len(origin.shape) == 1:
                 origin = origin.reshape((3, 1))
-        if not isinstance(direction, np.ndarray):
-            direction = np.array(direction)
+        if not isinstance(direction, torch.Tensor):
+            direction = torch.tensor(direction)
             if len(direction.shape) == 1:
                 direction = direction.reshape((3, 1))
 
         self.origin = origin
         self.direction = direction
-        self.t = np.ones((self.direction.shape[1], 1))
+        self.t = torch.ones((self.direction.shape[1], 1))
     
     def build_ray(self, point1, point2):
         """
@@ -79,17 +87,17 @@ class Ray():
         - point1 (2-D list): First point (this will become the origin of the ray).
         - point2 (2-D list): Second point.
         """
-        if not isinstance(point1, np.ndarray):
-            point1 = np.array(point1)
+        if not isinstance(point1, torch.Tensor):
+            point1 = torch.tensor(point1)
             if len(point1.shape) == 1:
                 point1 = point1.reshape((3, 1))
-        if not isinstance(point2, np.ndarray):
-            point2 = np.array(point2)
+        if not isinstance(point2, torch.Tensor):
+            point2 = torch.tensor(point2)
             if len(point2.shape) == 1:
                 point2 = point2.reshape((3, 1))
 
         self.origin = point1
-        self.direction = (point2 - point1) / np.linalg.norm(point2 - point1, axis=0)
+        self.direction = (point2 - point1) / torch.linalg.vector_norm(point2 - point1, dim=0)
         
 
     def visualize(self, fig=None, ax=None):
@@ -103,14 +111,15 @@ class Ray():
         ax.scatter(self.origin[0], self.origin[1], self.origin[2], s=5, marker='o', color='red')
         #NOTE: t has a shape of (N,1) where N is the number of rays
         for ray_id in range(self.t.shape[0]):
-            ax.plot([self.origin[0, ray_id], self.origin[0, ray_id] + t[ray_id, 0] * self.direction[0, ray_id]],
-                    [self.origin[1, ray_id], self.origin[1, ray_id] + t[ray_id, 0] * self.direction[1, ray_id]],
-                    [self.origin[2, ray_id], self.origin[2, ray_id] + t[ray_id, 0] * self.direction[2, ray_id]],
-                    color='black', linewidth=0.5)
+            ax.plot([self.origin[0, ray_id].numpy(),
+             (self.origin[0, ray_id] + t[ray_id, 0] * self.direction[0, ray_id]).numpy()],
+             [self.origin[1, ray_id].numpy(), (self.origin[1, ray_id] + t[ray_id, 0] * self.direction[1, ray_id]).numpy()],
+             [self.origin[2, ray_id].numpy(), (self.origin[2, ray_id] + t[ray_id, 0] * self.direction[2, ray_id]).numpy()],
+             color='black', linewidth=0.2)
 
         ax.quiver(self.origin[0], self.origin[1], self.origin[2], 
                   t * self.direction[0], t * self.direction[1], t * self.direction[2],
-                  length=0.2, linewidth=0.4, color='black', normalize=True)
+                  length=0.2, linewidth=0.1, color='black', normalize=True)
         ax.set_xlabel('X (mm)')
         ax.set_ylabel('Y (mm)')
         ax.set_zlabel('Z (mm)')
@@ -136,6 +145,11 @@ class Plane():
             print('Either provide the normal or all the angles, but not both')
             assert 1==0
 
+        if not isinstance(a, torch.Tensor):
+            a = torch.tensor(a)
+        if not isinstance(b, torch.Tensor):
+            b = torch.tensor(b)
+
         self.a = a
         self.b = b
         
@@ -149,10 +163,10 @@ class Plane():
 
             normal = self.angles_to_normal(alpha=alpha, beta=beta, gamma=gamma)
             
-        if not isinstance(normal, np.ndarray):
-            normal = np.array(normal)
-        if not isinstance(center, np.ndarray):
-            center = np.array(center)
+        if not isinstance(normal, torch.Tensor):
+            normal = torch.tensor(normal)
+        if not isinstance(center, torch.Tensor):
+            center = torch.tensor(center)
 
         if len(normal.shape) == 1:
             normal = normal.reshape((3, 1))
@@ -169,13 +183,13 @@ class Plane():
         self.vertical_direction = self.get_vertical_direction()
         
     def get_horizontal_direction(self):
-        horizontal_direction = np.array([0., 0., 1.])[:, None]
+        horizontal_direction = torch.tensor([0., 0., 1.]).unsqueeze(-1)
         rot_mat = rotz(self.gamma) @ roty(self.beta) @ rotx(self.alpha) # Rotation matrix        
         horizontal_direction = rot_mat @ horizontal_direction
         return horizontal_direction
     
     def get_vertical_direction(self):
-        vertical_direction = np.array([0., 1., 0.])[:, None]
+        vertical_direction = torch.tensor([0., 1., 0.]).unsqueeze(-1)
         rot_mat = rotz(self.gamma) @ roty(self.beta) @ rotx(self.alpha) # Rotation matrix        
         vertical_direction = rot_mat @ vertical_direction
         return vertical_direction
@@ -214,10 +228,10 @@ class Plane():
         return center
 
     def rotate_normal(self, normal, alpha=0., beta=0., gamma=0.):
-        if not isinstance(normal, np.ndarray):
-            normal = np.array(normal)
+        if not isinstance(normal, torch.Tensor):
+            normal = torch.tensor(normal)
         if len(normal.shape) == 1:
-            norma = normal.reshape((3, 1))
+            normal = normal.reshape((3, 1))
         Rx = rotx(alpha)
         Ry = roty(beta)
         Rz = rotz(gamma)
@@ -235,10 +249,10 @@ class Plane():
                             side parallel to Z-axis and in the negative Y region
         """
 
-        side1 = np.array([[0., self.a/2, self.b/2], [0., -self.a / 2, self.b / 2]]).T 
-        side2 = np.array([[0., self.a/2, -self.b/2], [0., -self.a / 2, -self.b / 2]]).T 
-        side3 = np.array([[0., self.a/2, self.b/2], [0., self.a/2, -self.b/2]]).T 
-        side4 = np.array([[0., -self.a/2, self.b/2], [0., -self.a/2, -self.b/2]]).T 
+        side1 = torch.tensor([[0., self.a/2, self.b/2], [0., -self.a / 2, self.b / 2]]).T 
+        side2 = torch.tensor([[0., self.a/2, -self.b/2], [0., -self.a / 2, -self.b / 2]]).T 
+        side3 = torch.tensor([[0., self.a/2, self.b/2], [0., self.a/2, -self.b/2]]).T 
+        side4 = torch.tensor([[0., -self.a/2, self.b/2], [0., -self.a/2, -self.b/2]]).T 
 
         if alpha is None:
             alpha = 0
@@ -262,7 +276,7 @@ class Plane():
         - gamma (float): Angle of the plane with respect to the z-axis.
         """
 
-        normal = np.array([1., 0., 0.])[:, None]
+        normal = torch.tensor([1., 0., 0.]).unsqueeze(-1)
         Rx = rotx(alpha)
         Ry = roty(beta)
         Rz = rotz(gamma)
@@ -279,28 +293,27 @@ class Plane():
 
         if sides is None:
             sides = self.sides
-        s10 = sides[0][:,0][:, None] - self.center
-       
+        s10 = sides[0][:,0].unsqueeze(-1) - self.center       
 
         if norma is None:
             norma = self.normal
-        if not isinstance(norma, np.ndarray):
-            norma = np.array(norma)
+        if not isinstance(norma, torch.Tensor):
+            norma = torch.tensor(norma)
         if len(norma.shape) == 1:
             norma = norma.reshape((3, 1))
         # Make sure the normal vector is normalized
-        norma = norma / np.linalg.norm(norma)
-        gamma = np.arctan2(norma[1], norma[0])[0]
+        norma = norma / torch.linalg.vector_norm(norma)
+        gamma = torch.arctan2(norma[1], norma[0])[0]
 
         norma = rotz(-gamma) @ norma
         s10 = rotz(-gamma) @ s10
-        beta = np.arctan2(-norma[2], norma[0])[0]
+        beta = torch.arctan2(-norma[2], norma[0])[0]
 
         norma = roty(-beta) @ norma
         s10 = roty(-beta) @ s10
 
-        assert np.abs(s10[0]) < 1e-5
-        alpha = np.arctan2(s10[2], s10[1])[0] - np.arctan2(self.b, self.a)
+        assert torch.abs(s10[0]) < 1e-5
+        alpha = torch.arctan2(s10[2], s10[1])[0] - torch.arctan2(self.b, self.a)
         return alpha, beta, gamma
 
     def update_normal(self, normal=[1.,0.,0.]):
@@ -341,8 +354,8 @@ class Plane():
         if center is None:
             center = self.center
         else:
-            if not isinstance(center, np.ndarray):
-                center = np.array(center)
+            if not isinstance(center, torch.Tensor):
+                center = torch.tensor(center)
             if len(center.shape == 1):
                 center = center.reshape((3, 1))
             self.center = center
@@ -367,7 +380,7 @@ class Plane():
         """
         ray_direction = ray.direction
         ray_origin = ray.origin
-        t = np.dot((self.center - ray_origin).T, self.normal) / np.dot(ray_direction.T, self.normal)
+        t = torch.mm((self.center - ray_origin).T, self.normal) / torch.mm(ray_direction.T, self.normal)
         intersection = ray_origin + t.T * ray_direction
         ray.t = t
         return intersection
@@ -417,7 +430,7 @@ class Plane():
         Visualize the plane by plotting the sides and 500 points lying on the plane.
         """
         rot_mat = rotz(self.gamma) @ roty(self.beta) @ rotx(self.alpha) # Rotation matrix        
-        sampled_points = np.random.rand(3, 500)
+        sampled_points = torch.rand(3, 500)
         sampled_points[0,:] = 0
         sampled_points[1,:] = sampled_points[1,:] * self.a - self.a / 2
         sampled_points[2,:] = sampled_points[2,:] * self.b - self.b / 2
@@ -426,41 +439,43 @@ class Plane():
         length_of_normal = 0.2 #cm
         normal = self.normal * length_of_normal
         center = self.center
-        normal_line = np.hstack((center, center + normal))
+        normal_line = torch.hstack((center, center + normal))
         s1, s2, s3, s4 = self.sides
 
         if fig is None:
             fig = plt.figure()
             ax = fig.add_subplot(111, projection='3d')
+        print(sampled_points.shape)
         ax.scatter(sampled_points[0], sampled_points[1], sampled_points[2], c=color, s=1, alpha=0.25)
-        ax.plot(s1[0], s1[1], s1[2], c='black')
-        ax.plot(s2[0], s2[1], s2[2], c='black')
-        ax.plot(s3[0], s3[1], s3[2], c='black')
-        ax.plot(s4[0], s4[1], s4[2], c='black')
-        ax.plot(normal_line[0], normal_line[1], normal_line[2], c='black')
+        ax.plot(s1[0].numpy(), s1[1].numpy(), s1[2].numpy(), c='black')
+        ax.plot(s2[0].numpy(), s2[1].numpy(), s2[2].numpy(), c='black')
+        ax.plot(s3[0].numpy(), s3[1].numpy(), s3[2].numpy(), c='black')
+        ax.plot(s4[0].numpy(), s4[1].numpy(), s4[2].numpy(), c='black')
+        ax.plot(normal_line[0].numpy(), normal_line[1].numpy(), normal_line[2].numpy(), c='black')
         ax.set_xlabel('X (mm)')
         ax.set_ylabel('Y (mm)')
         ax.set_zlabel('Z (mm)')
         #plt.show()
         return fig, ax
 
+#%% Camera  class
 class Camera(Plane):
     # NOTE: The plane defines the camera sensor, not the aperture plane
-    def __init__(self, alpha=-np.pi/2, beta=-np.pi/2, gamma=0., aperture=[0.,0.,0.], 
+    def __init__(self, alpha=-pi/2, beta=-pi/2, gamma=0., aperture=[0.,0.,0.], 
                  normal=None, a=0.662, b=0.414, focal_length=15., pixel_size=3.45e-4, 
                  principal_point_pixel=None):        
         super().__init__(normal=normal, center=[0.,0.,0], alpha=alpha, beta=beta, gamma=gamma, a=a, b=b)
         
         if principal_point_pixel is None:
-            principal_point_pixel = np.array([a/pixel_size/2, b/pixel_size/2.])[:, None]
+            principal_point_pixel = torch.tensor([a/pixel_size/2, b/pixel_size/2.])[:, None]
 
-        if not isinstance(aperture, np.ndarray):
-            aperture = np.array(aperture)
+        if not isinstance(aperture, torch.Tensor):
+            aperture = torch.tensor(aperture)
             if len(aperture.shape) == 1:
                 aperture = aperture.reshape((3, 1))
 
-        if not isinstance(principal_point_pixel, np.ndarray):
-            principal_point_pixel = np.array(principal_point_pixel)
+        if not isinstance(principal_point_pixel, torch.Tensor):
+            principal_point_pixel = torch.tensor(principal_point_pixel)
             if len(principal_point_pixel.shape) == 1:
                 principal_point_pixel = principal_point_pixel.reshape((2, 1))
         
@@ -484,7 +499,7 @@ class Camera(Plane):
         """
         pixels = self.pixels_to_world(pixel)
         ray = Ray()
-        aperture = np.repeat(self.aperture, pixels.shape[1], axis=1)
+        aperture = self.aperture.repeat(1, pixels.shape[1]).clone()
         ray.build_ray(pixels, aperture)
         return ray
     
@@ -513,7 +528,7 @@ def visualize_camera_configuration(camera=None, prism=None, pixels=None):
         prism = Prism(prism_size=[2.,2.,2.], prism_center=prism_center)
             
     if pixels is None:
-        pixels = np.array([1,1])[:, None]
+        pixels = torch.tensor([1,1]).unsqueeze(-1)
     
     ray = camera.initialize_ray(pixels)
     prism.trace_ray(ray.origin, ray.origin + ray.direction)
@@ -615,26 +630,31 @@ class OpticalPlane(Plane):
                   a=1., b=1.):
         super().__init__(normal=normal, center=center, alpha=alpha, beta=beta, gamma=gamma, a=a, b=b)
 
+        if not isinstance(refractive_idx_1, torch.Tensor):
+            refractive_idx_1 = torch.tensor(refractive_idx_1)
+        if not isinstance(refractive_idx_2, torch.Tensor):
+            refractive_idx_2 = torch.tensor(refractive_idx_2)
+        
         self.refractive_idx_1 = refractive_idx_1
         self.refractive_idx_2 = refractive_idx_2
 
     def reflect_ray(self, ray):
         intersection = self.get_intersection(ray)
         normal = self.normal
-        cosi = np.dot(ray.direction.T, normal).T
+        cosi = torch.mm(ray.direction.T, normal).T
 
-        normal_multiplier = np.ones(cosi.shape)
+        normal_multiplier = torch.ones(cosi.shape)
         normal_multiplier[cosi < 0] = -1
         
 #        if cosi < 0:
 #            normal = -normal
-        cosi = np.abs(cosi)
+        cosi = torch.abs(cosi)
         displacement = 2 * normal * (ray.direction - cosi * normal_multiplier) 
         #displacement = displacement.T
         reflected_ray = Ray()
         reflected_ray.origin = intersection
         reflected_ray.direction = displacement - ray.direction
-        reflected_ray.direction = reflected_ray.direction / np.linalg.norm(reflected_ray.direction, axis=0)
+        reflected_ray.direction = reflected_ray.direction / torch.linalg.vector_norm(reflected_ray.direction, dim=0)
         return reflected_ray
 
     def refract_ray(self, ray):
@@ -656,57 +676,36 @@ class OpticalPlane(Plane):
         
         #incoming_ray_vertical = mat1[0].apply(ray.direction)
         #r2 = np.arctan2(incoming_ray_vertical[1], incoming_ray_vertical[0])
-        cosi = np.dot(ray.direction.T, normal).T #angle of incidence
-        cosi = np.clip(cosi, -1., 1.) # floating point errors can lead to cosi being slightly outside [-1, 1]
+        cosi = torch.mm(ray.direction.T, normal).T #angle of incidence
+        cosi = torch.clip(cosi, -1., 1.) # floating point errors can lead to cosi being slightly outside [-1, 1]
         #normal_inverter = np.zeros(cosi.shape)
         #normal_inverter[cosi < 0] = -1
-        normal_multiplier = np.ones(cosi.shape)
+        normal_multiplier = torch.ones(cosi.shape)
         normal_multiplier[cosi < 0] = -1
-        refractive_idx_1 = np.repeat(np.array([refractive_idx_1])[:,None], cosi.shape[1], axis=1)
-        refractive_idx_2 = np.repeat(np.array([refractive_idx_2])[:,None], cosi.shape[1], axis=1)
-        temp = refractive_idx_1.copy()
+        refractive_idx_1 = refractive_idx_1.clone() * torch.ones(cosi.shape)
+        refractive_idx_2 = refractive_idx_2.clone() * torch.ones(cosi.shape)
+        temp = refractive_idx_1.clone()
         refractive_idx_1[cosi > 0] = refractive_idx_2[cosi > 0]
         refractive_idx_2[cosi > 0] = temp[cosi > 0]
-        #if cosi < 0: # ray within the prism
-            #normal = -normal
-        #    print('')
-        #else:
-        #    temp = refractive_idx_1
-        #    refractive_idx_1 = refractive_idx_2
-        #    refractive_idx_2 = temp
+
         
-        cosi = np.abs(cosi)        
-        sini = np.sqrt(1 - cosi**2)
+        cosi = torch.abs(cosi)        
+        sini = torch.sqrt(1 - cosi**2)
         sinr = refractive_idx_1 * sini / refractive_idx_2
-        #if sinr > 1:
-        #    print('Total internal reflection has occured!')
-        #    refracted_ray = self.reflect_ray(ray)
-        #    return refracted_ray
-        cosr = np.sqrt(1 - sinr**2)
+
+        cosr = torch.sqrt(1 - sinr**2)
         ray_displacement = normal * (refractive_idx_1 / refractive_idx_2 * (cosr - cosi) * normal_multiplier) 
-        #print(ray_displacement.shape)
-        #print(f'cosr {cosr}, cosi {cosi}, sini {sini}, sinr {sinr}, ')
-        #print(f'r {180/np.pi * np.arcsin(sinr)}, i {180/np.pi * np.arcsin(sini)}')
-        #sinr2 = refractive_idx_1 * np.sqrt(1 - np.dot(ray.direction, normal)**2) / refractive_idx_2 # Angle of refraction in rotated frame  
-        #sinr2 = sinr2[0]
-        #r2 = np.arcsin(sinr2)
         
-        #ray_rotated_frame = [np.array([0, 0, 0]), np.array([sinr2, -np.cos(r2), 0])] )
-        #refracted_ray_ = [intersection + mat1[0].apply(vec) for vec in ray_rotated_frame]
         refracted_ray_direction = ray.direction + ray_displacement
-        refracted_ray = Ray(origin=intersection, direction=refracted_ray_direction / np.linalg.norm(refracted_ray_direction, axis=0))
-        #refracted_ray.origin = intersection
-        #refracted_ray.direction = ray.direction + ray_displacement
-        #refracted_ray.direction = refracted_ray.direction / np.linalg.norm(refracted_ray.direction, axis=0)
-        #print(f'Input ray direction: {ray.direction}')
-        #print(f'Refracted ray direction: {refracted_ray.direction}')
+        refracted_ray = Ray(origin=intersection, direction=refracted_ray_direction / torch.linalg.vector_norm(refracted_ray_direction, dim=0))
+
         return refracted_ray
 
 
 # %% Prism class
 class Prism():
 
-    def __init__(self, prism_size=[1.,1.,1.], prism_angles=[0.,np.pi/2,np.pi/2], prism_center=[0.,0.,0.], refractive_index_glass=1.5, refractive_index_air=1.):
+    def __init__(self, prism_size=[1.,1.,1.], prism_angles=[0.,pi/2,pi/2], prism_center=[0.,0.,0.], refractive_index_glass=1.5, refractive_index_air=1.):
         """
         Parameters:
         - prism_size (list): Length (X), width (Z) and height (Y) of the prism.
@@ -714,8 +713,8 @@ class Prism():
         - prism_center (list): Center of the first surface of the prism. (surface facing the camera)
         """
         
-        if not isinstance(prism_center, np.ndarray):
-            prism_center = np.array(prism_center)
+        if not isinstance(prism_center, torch.Tensor):
+            prism_center = torch.tensor(prism_center)
             if len(prism_center.shape) == 1:
                 prism_center = prism_center.reshape((3, 1))
 
@@ -727,18 +726,18 @@ class Prism():
         n_glass = refractive_index_glass
         prism_alpha, prism_beta, prism_gamma = prism_angles
         plane1 = OpticalPlane(refractive_idx_1=n_air, refractive_idx_2=n_glass, a=1., b=1.) # Plane facing the camera
-        plane2_center = np.array([plane1.center[0,0] - plane1.a/2,
+        plane2_center = torch.tensor([plane1.center[0,0] - plane1.a/2,
                                 plane1.center[1,0],
-                                plane1.center[2,0]])[:, None]
-        plane2_b = plane1.b * np.sqrt(2)
+                                plane1.center[2,0]]).unsqueeze(-1)
+        plane2_b = plane1.b * torch.sqrt(torch.tensor(2))
         plane2 = OpticalPlane(refractive_idx_1=n_air, refractive_idx_2=n_glass, 
-                              beta=np.pi/4 + np.pi, a = plane1.a, b=plane2_b, center=plane2_center)
+                              beta=pi/4 + pi, a = plane1.a, b=plane2_b, center=plane2_center)
         
-        plane3_center = np.array([plane1.center[0,0] - plane1.a/2, 
+        plane3_center = torch.tensor([plane1.center[0,0] - plane1.a/2, 
                                 plane1.center[1,0],
                                 plane1.center[2,0] - plane1.b/2])
         plane3 = OpticalPlane(refractive_idx_1=n_air, refractive_idx_2=n_glass, 
-                              beta=np.pi/2, a=plane1.a, b=plane1.b, center=plane3_center)
+                              beta=pi/2, a=plane1.a, b=plane1.b, center=plane3_center)
 
         plane1.rotate_plane(alpha=prism_alpha,
                             beta=prism_beta,
@@ -758,16 +757,15 @@ class Prism():
 
 
     def trace_ray(self, origin_point=[0.,0.6,0.25], target_point=[0.,0.4,0.]):
-        if not isinstance(origin_point, np.ndarray):
-            origin_point = np.array(origin_point)
+        if not isinstance(origin_point, torch.Tensor):
+            origin_point = torch.tensor(origin_point)
             if len(origin_point.shape) == 1:
                 origin_point = origin_point.reshape((3, 1))
 
-        if not isinstance(target_point, np.ndarray):
-            target_point = np.array(target_point)
+        if not isinstance(target_point, torch.Tensor):
+            target_point = torch.tensor(target_point)
             if len(target_point.shape) == 1:
-                target_point = target_point.reshape((3, 1))
-        
+                target_point = target_point.reshape((3, 1))        
         
         self.ray1 = Ray()
         self.ray1.build_ray(origin_point, target_point)
@@ -808,9 +806,6 @@ class Prism():
         fig, ax = self.ray4.visualize(fig, ax)
         return fig, ax
     
-    
-
-        
 
 optical = True
 if __name__=="__main__":
@@ -818,9 +813,9 @@ if __name__=="__main__":
         n_glass = 1.55
         n_air = 1.
         prism_alpha = 0.
-        prism_beta = np.pi / 2
-        prism_gamma = np.pi / 2 
-        prism_center = np.array([0.,0.,0.])[:, None]
+        prism_beta = pi / 2
+        prism_gamma = pi / 2 
+        prism_center = torch.tensor([0.,0.,0.])[:, None]
         
         prism = Prism(prism_size=[1.,1.,1.], prism_angles=[prism_alpha, prism_beta, prism_gamma], 
                       prism_center=prism_center, refractive_index_glass=n_glass, 
@@ -835,20 +830,20 @@ if __name__=="__main__":
  
     else: 
         print('Not optical')
-        prism_alpha = 0 * np.pi 
+        prism_alpha = 0 * pi 
         prism_beta = 0.
-        prism_gamma = np.pi / 2
+        prism_gamma = pi / 2
         plane1 = Plane()
-        plane2_center = np.array([plane1.center[0,0] - plane1.a/2,
+        plane2_center = torch.tensor([plane1.center[0,0] - plane1.a/2,
                                 plane1.center[1,0],
                                 plane1.center[2,0]])[:, None]
-        plane2_b = plane1.b * np.sqrt(2)
-        plane2 = Plane(beta=np.pi/4, a = plane1.a, b=plane2_b, center=plane2_center)
+        plane2_b = plane1.b * torch.sqrt(torch.tensor(2))
+        plane2 = Plane(beta=torch.pi/4, a = plane1.a, b=plane2_b, center=plane2_center)
         
-        plane3_center = np.array([plane1.center[0,0] - plane1.a/2, 
+        plane3_center = torch.array([plane1.center[0,0] - plane1.a/2, 
                                 plane1.center[1,0],
                                 plane1.center[2,0] - plane1.b/2])
-        plane3 = Plane(beta=np.pi/2, a=plane1.a, b=plane1.b, center=plane3_center)
+        plane3 = Plane(beta=pi/2, a=plane1.a, b=plane1.b, center=plane3_center)
 
         plane1.rotate_plane(alpha=prism_alpha,
                             beta=prism_beta,
