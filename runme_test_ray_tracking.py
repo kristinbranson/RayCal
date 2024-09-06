@@ -1,5 +1,5 @@
 # %% Imports
-from ray_tracing_simulator import Prism, Ray, Plane, OpticalPlane
+from ray_tracing_simulator import Prism, Ray, Plane, OpticalPlane, visualize_camera_configuration
 import matplotlib.pyplot as plt
 import numpy as np  
 
@@ -52,10 +52,14 @@ prism = Prism(prism_size=[1.,1.,1.], prism_angles=[prism_alpha, prism_beta, pris
                 refractive_index_air=n_air)
 
 origin_point=[0.,0.6,-0.25] 
-target_point=[0.,0.4,0.]
+target_point=[0.,0.37,0.]
 prism.trace_ray(origin_point, target_point) 
 fig, ax = prism.visualize_prism_and_ray()
 ax.set_aspect('equal', adjustable='datalim')        
 plt.show()
 
+# %% Test camera configuration
+pixels = np.random.rand(2, 10)
+pixels = pixels * np.array([1918, 1200])[:, None]
+_, _, prism, camera = visualize_camera_configuration(pixels=pixels)
 # %%

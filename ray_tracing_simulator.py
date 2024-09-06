@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import pickle
 from config import Config
 from scipy.spatial.transform import Rotation as R
+import torch
 mpl.use('TkAgg') # Use this if working on the PC
 #mpl.use('QtAgg') # Use this if working remotely with NoMachine
 plt.ion()
@@ -69,7 +70,7 @@ class Ray():
 
         self.origin = origin
         self.direction = direction
-        self.t = 1.
+        self.t = np.ones((self.direction.shape[1], 1))
     
     def build_ray(self, point1, point2):
         """
@@ -99,21 +100,22 @@ class Ray():
         if fig is None:
             fig = plt.figure()
             ax = fig.add_subplot(111, projection='3d')
-        ax.scatter(self.origin[0], self.origin[1], self.origin[2], marker='o')
-        
-        #ax.plot([self.origin[0], self.origin[0] + t * self.direction[0]],
-        #        [self.origin[1], self.origin[1] + t * self.direction[1]],
-        #        [self.origin[2], self.origin[2] + t * self.direction[2]])
+        ax.scatter(self.origin[0], self.origin[1], self.origin[2], s=5, marker='o', color='red')
+        #NOTE: t has a shape of (N,1) where N is the number of rays
+        for ray_id in range(self.t.shape[0]):
+            ax.plot([self.origin[0, ray_id], self.origin[0, ray_id] + t[ray_id, 0] * self.direction[0, ray_id]],
+                    [self.origin[1, ray_id], self.origin[1, ray_id] + t[ray_id, 0] * self.direction[1, ray_id]],
+                    [self.origin[2, ray_id], self.origin[2, ray_id] + t[ray_id, 0] * self.direction[2, ray_id]],
+                    color='black', linewidth=0.5)
 
         ax.quiver(self.origin[0], self.origin[1], self.origin[2], 
                   t * self.direction[0], t * self.direction[1], t * self.direction[2],
-                  arrow_length_ratio=0., linewidth=0.5)
+                  length=0.2, linewidth=0.4, color='black', normalize=True)
         ax.set_xlabel('X (mm)')
         ax.set_ylabel('Y (mm)')
         ax.set_zlabel('Z (mm)')
         plt.show()
         return fig, ax
-
 
 # %% Plane class
 class Plane():
@@ -442,11 +444,10 @@ class Plane():
         #plt.show()
         return fig, ax
 
-
 class Camera(Plane):
     # NOTE: The plane defines the camera sensor, not the aperture plane
     def __init__(self, alpha=-np.pi/2, beta=-np.pi/2, gamma=0., aperture=[0.,0.,0.], 
-                 normal=None, a=0.62, b=0.414, focal_length=15., pixel_size=3.42e-4, 
+                 normal=None, a=0.662, b=0.414, focal_length=15., pixel_size=3.45e-4, 
                  principal_point_pixel=None):        
         super().__init__(normal=normal, center=[0.,0.,0], alpha=alpha, beta=beta, gamma=gamma, a=a, b=b)
         
@@ -520,7 +521,7 @@ def visualize_camera_configuration(camera=None, prism=None, pixels=None):
     fig, ax = prism.visualize_prism_and_ray(fig=fig, ax=ax)
     ax.scatter(camera.aperture[0], camera.aperture[1], camera.aperture[2], c='black', s=10)
     ax.set_aspect('equal', adjustable='datalim')        
-    return fig, ax
+    return fig, ax, prism, camera
 
 
 # %% Camera class
@@ -620,7 +621,7 @@ class OpticalPlane(Plane):
     def reflect_ray(self, ray):
         intersection = self.get_intersection(ray)
         normal = self.normal
-        cosi = np.dot(ray.direction.T, normal)
+        cosi = np.dot(ray.direction.T, normal).T
 
         normal_multiplier = np.ones(cosi.shape)
         normal_multiplier[cosi < 0] = -1
@@ -628,10 +629,12 @@ class OpticalPlane(Plane):
 #        if cosi < 0:
 #            normal = -normal
         cosi = np.abs(cosi)
-        displacement = 2 * (ray.direction - cosi * normal * normal_multiplier)
+        displacement = 2 * normal * (ray.direction - cosi * normal_multiplier) 
+        #displacement = displacement.T
         reflected_ray = Ray()
         reflected_ray.origin = intersection
         reflected_ray.direction = displacement - ray.direction
+        reflected_ray.direction = reflected_ray.direction / np.linalg.norm(reflected_ray.direction, axis=0)
         return reflected_ray
 
     def refract_ray(self, ray):
@@ -653,14 +656,14 @@ class OpticalPlane(Plane):
         
         #incoming_ray_vertical = mat1[0].apply(ray.direction)
         #r2 = np.arctan2(incoming_ray_vertical[1], incoming_ray_vertical[0])
-        cosi = np.dot(ray.direction.T, normal) #angle of incidence
+        cosi = np.dot(ray.direction.T, normal).T #angle of incidence
         cosi = np.clip(cosi, -1., 1.) # floating point errors can lead to cosi being slightly outside [-1, 1]
         #normal_inverter = np.zeros(cosi.shape)
         #normal_inverter[cosi < 0] = -1
         normal_multiplier = np.ones(cosi.shape)
         normal_multiplier[cosi < 0] = -1
-        refractive_idx_1 = np.repeat(np.array([refractive_idx_1])[:,None], cosi.shape[0], axis=0)
-        refractive_idx_2 = np.repeat(np.array([refractive_idx_2])[:,None], cosi.shape[0], axis=0)
+        refractive_idx_1 = np.repeat(np.array([refractive_idx_1])[:,None], cosi.shape[1], axis=1)
+        refractive_idx_2 = np.repeat(np.array([refractive_idx_2])[:,None], cosi.shape[1], axis=1)
         temp = refractive_idx_1.copy()
         refractive_idx_1[cosi > 0] = refractive_idx_2[cosi > 0]
         refractive_idx_2[cosi > 0] = temp[cosi > 0]
@@ -672,24 +675,29 @@ class OpticalPlane(Plane):
         #    refractive_idx_1 = refractive_idx_2
         #    refractive_idx_2 = temp
         
-        cosi = np.abs(cosi)
-        
+        cosi = np.abs(cosi)        
         sini = np.sqrt(1 - cosi**2)
         sinr = refractive_idx_1 * sini / refractive_idx_2
+        #if sinr > 1:
+        #    print('Total internal reflection has occured!')
+        #    refracted_ray = self.reflect_ray(ray)
+        #    return refracted_ray
         cosr = np.sqrt(1 - sinr**2)
-        ray_displacement = refractive_idx_1 / refractive_idx_2 * (cosr - cosi) * normal * normal_multiplier
+        ray_displacement = normal * (refractive_idx_1 / refractive_idx_2 * (cosr - cosi) * normal_multiplier) 
+        #print(ray_displacement.shape)
         #print(f'cosr {cosr}, cosi {cosi}, sini {sini}, sinr {sinr}, ')
         #print(f'r {180/np.pi * np.arcsin(sinr)}, i {180/np.pi * np.arcsin(sini)}')
         #sinr2 = refractive_idx_1 * np.sqrt(1 - np.dot(ray.direction, normal)**2) / refractive_idx_2 # Angle of refraction in rotated frame  
         #sinr2 = sinr2[0]
         #r2 = np.arcsin(sinr2)
         
-        #ray_rotated_frame = [np.array([0, 0, 0]), np.array([sinr2, -np.cos(r2), 0])] 
-
+        #ray_rotated_frame = [np.array([0, 0, 0]), np.array([sinr2, -np.cos(r2), 0])] )
         #refracted_ray_ = [intersection + mat1[0].apply(vec) for vec in ray_rotated_frame]
-        refracted_ray = Ray()
-        refracted_ray.origin = intersection
-        refracted_ray.direction = ray.direction + ray_displacement
+        refracted_ray_direction = ray.direction + ray_displacement
+        refracted_ray = Ray(origin=intersection, direction=refracted_ray_direction / np.linalg.norm(refracted_ray_direction, axis=0))
+        #refracted_ray.origin = intersection
+        #refracted_ray.direction = ray.direction + ray_displacement
+        #refracted_ray.direction = refracted_ray.direction / np.linalg.norm(refracted_ray.direction, axis=0)
         #print(f'Input ray direction: {ray.direction}')
         #print(f'Refracted ray direction: {refracted_ray.direction}')
         return refracted_ray
@@ -762,7 +770,7 @@ class Prism():
         
         
         self.ray1 = Ray()
-        self.ray1.build_ray(origin_point, target_point)            
+        self.ray1.build_ray(origin_point, target_point)
         self.ray2 = self.plane1.refract_ray(self.ray1)
         self.ray3 = self.plane2.reflect_ray(self.ray2)
         self.ray4 = self.plane3.refract_ray(self.ray3)
@@ -801,36 +809,7 @@ class Prism():
         return fig, ax
     
     
-    def get_reflecting_surface(self, prism_size, prism_angle, prism_center):
 
-        return normal, center
-
-    def get_second_surface(self, prism_size, prism_angle, prism_center):
-
-        return normal, center
-
-    def propagate_ray_through_prism(self, ray, prism_size, prism_normal, prism_center):
-        """
-        Propagate a ray through a prism.
-        Parameters:
-        - ray (np.array): Ray to propagate.
-        - prism_size (2-D list): Width and height of the prism.
-        - prism_angle (float): Normal of the first surface of the prism. (surface facing the camera)
-        - prism_center (2-D list): Center of the first surface of the prism. (surface facing the camera)
-        Returns:
-        - refracted_ray (np.array): Refracted ray.
-        """
-        n1 = 1
-        normal_first_surface = prism_normal
-        intersection_first_surface = self.get_intersection(ray, self.prism_normal, self.prism_center)
-        ray_after_first_surface = self.refract_ray(ray, normal_first_surface, intersection_first_surface, n1, self.refractive_index_glass)
-        normal_reflecting_surface, center_reflecting_surface = self.get_reflecting_surface(prism_size, prism_normal, prism_center)
-        intersection_reflecting_surface = self.get_intersection(ray_after_first_surface, normal_reflecting_surface, center_reflecting_surface)
-        ray_after_reflecting_surface = self.reflect_ray(ray_after_first_surface, intersection_reflecting_surface, normal_reflecting_surface)
-        normal_second_surface, center_second_surface = self.get_second_surface(prism_size, self.prism_normal, prism_center)
-        intersection_second_surface = self.intersection(ray_after_reflecting_surface, normal_second_surface, center_second_surface)
-        ray_after_second_surface = self.refract_ray(ray_after_first_surface, intersection_second_surface, normal_second_surface, self.refractive_index_glass), 1
-        return ray_after_second_surface
         
 
 optical = True
@@ -846,13 +825,12 @@ if __name__=="__main__":
         prism = Prism(prism_size=[1.,1.,1.], prism_angles=[prism_alpha, prism_beta, prism_gamma], 
                       prism_center=prism_center, refractive_index_glass=n_glass, 
                       refractive_index_air=n_air)
-        
-        
+                
         origin_point=[0.,0.6,-0.25] 
-        target_point=[0.,0.4,0.]
+        target_point=[0.,0.37,0.]
         prism.trace_ray(origin_point, target_point) 
         fig, ax = prism.visualize_prism_and_ray()
-        ax.set_aspect('equal', adjustable='datalim')        
+        ax.set_aspect('equal', adjustable='datalim')
         plt.show()
  
     else: 
