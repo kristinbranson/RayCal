@@ -43,7 +43,7 @@ ax.set_aspect('equal', adjustable='datalim')
 n_glass = 1.55
 n_air = 1.
 prism_alpha = 0.
-prism_beta = -np.pi / 2
+prism_beta = np.pi / 2
 prism_gamma = np.pi / 2 
 prism_center = np.array([0.,0.,0.])[:, None]
 
@@ -51,12 +51,11 @@ prism = Prism(prism_size=[1.,1.,1.], prism_angles=[prism_alpha, prism_beta, pris
                 prism_center=prism_center, refractive_index_glass=n_glass, 
                 refractive_index_air=n_air)
 
-origin_point=[0.,0.6,0.25] 
+origin_point=[0.,0.6,-0.25] 
 target_point=[0.,0.4,0.]
 prism.trace_ray(origin_point, target_point) 
 fig, ax = prism.visualize_prism_and_ray()
 ax.set_aspect('equal', adjustable='datalim')        
 plt.show()
 
-
-
+# %%

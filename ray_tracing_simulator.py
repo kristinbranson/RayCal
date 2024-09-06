@@ -7,8 +7,8 @@ import matplotlib.pyplot as plt
 import pickle
 from config import Config
 from scipy.spatial.transform import Rotation as R
-#mpl.use('TkAgg')
-mpl.use('QtAgg')
+mpl.use('TkAgg') # Use this if working on the PC
+#mpl.use('QtAgg') # Use this if working remotely with NoMachine
 plt.ion()
 
 def rotx(angle):
@@ -60,8 +60,12 @@ class Ray():
         """
         if not isinstance(origin, np.ndarray):
             origin = np.array(origin)
+            if len(origin.shape) == 1:
+                origin = origin.reshape((3, 1))
         if not isinstance(direction, np.ndarray):
             direction = np.array(direction)
+            if len(direction.shape) == 1:
+                direction = direction.reshape((3, 1))
 
         self.origin = origin
         self.direction = direction
@@ -76,11 +80,15 @@ class Ray():
         """
         if not isinstance(point1, np.ndarray):
             point1 = np.array(point1)
+            if len(point1.shape) == 1:
+                point1 = point1.reshape((3, 1))
         if not isinstance(point2, np.ndarray):
             point2 = np.array(point2)
+            if len(point2.shape) == 1:
+                point2 = point2.reshape((3, 1))
 
         self.origin = point1
-        self.direction = (point2 - point1) / np.linalg.norm(point2 - point1)
+        self.direction = (point2 - point1) / np.linalg.norm(point2 - point1, axis=0)
         
 
     def visualize(self, fig=None, ax=None):
@@ -92,9 +100,14 @@ class Ray():
             fig = plt.figure()
             ax = fig.add_subplot(111, projection='3d')
         ax.scatter(self.origin[0], self.origin[1], self.origin[2], marker='o')
+        
+        #ax.plot([self.origin[0], self.origin[0] + t * self.direction[0]],
+        #        [self.origin[1], self.origin[1] + t * self.direction[1]],
+        #        [self.origin[2], self.origin[2] + t * self.direction[2]])
+
         ax.quiver(self.origin[0], self.origin[1], self.origin[2], 
                   t * self.direction[0], t * self.direction[1], t * self.direction[2],
-                  arrow_length_ratio=0.2)
+                  arrow_length_ratio=0., linewidth=0.5)
         ax.set_xlabel('X (mm)')
         ax.set_ylabel('Y (mm)')
         ax.set_zlabel('Z (mm)')
@@ -150,7 +163,20 @@ class Plane():
         self.update_normal(normal)
         self.update_sides(sides)
         self.update_angles(alpha, beta, gamma)
+        self.horizontal_direction = self.get_horizontal_direction()
+        self.vertical_direction = self.get_vertical_direction()
         
+    def get_horizontal_direction(self):
+        horizontal_direction = np.array([0., 0., 1.])[:, None]
+        rot_mat = rotz(self.gamma) @ roty(self.beta) @ rotx(self.alpha) # Rotation matrix        
+        horizontal_direction = rot_mat @ horizontal_direction
+        return horizontal_direction
+    
+    def get_vertical_direction(self):
+        vertical_direction = np.array([0., 1., 0.])[:, None]
+        rot_mat = rotz(self.gamma) @ roty(self.beta) @ rotx(self.alpha) # Rotation matrix        
+        vertical_direction = rot_mat @ vertical_direction
+        return vertical_direction
 
     def rotate_plane(self, alpha=0., beta=0., gamma=0.):
         normal = self.rotate_normal(normal=self.normal, alpha=alpha,
@@ -164,10 +190,13 @@ class Plane():
                                   gamma=gamma)
         center = self.rotate_center(self.center, alpha, beta, gamma)
         self.update_center(center)
-        alpha, beta, gamma = self.get_angles(normal, sides)
+        alpha, beta, gamma = self.get_angles(normal, sides)    
         self.update_normal(normal)
-        self.update_angles(alpha, beta, gamma)
+        self.update_angles(alpha, beta, gamma)        
+        self.horizontal_direction = self.get_horizontal_direction() #Note that angles have been updated first
+        self.vertical_direction = self.get_vertical_direction() #Note that angles have been updated first
         self.update_sides(sides)
+
         
     def move_plane(self, displacement):
         self.center = self.center + displacement
@@ -250,7 +279,7 @@ class Plane():
             sides = self.sides
         s10 = sides[0][:,0][:, None] - self.center
        
-        #print(norma)
+
         if norma is None:
             norma = self.normal
         if not isinstance(norma, np.ndarray):
@@ -260,14 +289,14 @@ class Plane():
         # Make sure the normal vector is normalized
         norma = norma / np.linalg.norm(norma)
         gamma = np.arctan2(norma[1], norma[0])[0]
-        #print(gamma)
+
         norma = rotz(-gamma) @ norma
         s10 = rotz(-gamma) @ s10
         beta = np.arctan2(-norma[2], norma[0])[0]
-        #print(beta)
+
         norma = roty(-beta) @ norma
         s10 = roty(-beta) @ s10
-        #print(s10)
+
         assert np.abs(s10[0]) < 1e-5
         alpha = np.arctan2(s10[2], s10[1])[0] - np.arctan2(self.b, self.a)
         return alpha, beta, gamma
@@ -336,9 +365,8 @@ class Plane():
         """
         ray_direction = ray.direction
         ray_origin = ray.origin
-        
-        t = np.dot(self.center[:,0] - ray_origin, self.normal[:,0]) / np.dot(ray_direction, self.normal[:,0])
-        intersection = ray_origin + t * ray_direction
+        t = np.dot((self.center - ray_origin).T, self.normal) / np.dot(ray_direction.T, self.normal)
+        intersection = ray_origin + t.T * ray_direction
         ray.t = t
         return intersection
 
@@ -387,7 +415,7 @@ class Plane():
         Visualize the plane by plotting the sides and 500 points lying on the plane.
         """
         rot_mat = rotz(self.gamma) @ roty(self.beta) @ rotx(self.alpha) # Rotation matrix        
-        sampled_points = np.random.rand(3, 1000)
+        sampled_points = np.random.rand(3, 500)
         sampled_points[0,:] = 0
         sampled_points[1,:] = sampled_points[1,:] * self.a - self.a / 2
         sampled_points[2,:] = sampled_points[2,:] * self.b - self.b / 2
@@ -415,13 +443,93 @@ class Plane():
         return fig, ax
 
 
+class Camera(Plane):
+    # NOTE: The plane defines the camera sensor, not the aperture plane
+    def __init__(self, alpha=-np.pi/2, beta=-np.pi/2, gamma=0., aperture=[0.,0.,0.], 
+                 normal=None, a=0.62, b=0.414, focal_length=15., pixel_size=3.42e-4, 
+                 principal_point_pixel=None):        
+        super().__init__(normal=normal, center=[0.,0.,0], alpha=alpha, beta=beta, gamma=gamma, a=a, b=b)
+        
+        if principal_point_pixel is None:
+            principal_point_pixel = np.array([a/pixel_size/2, b/pixel_size/2.])[:, None]
+
+        if not isinstance(aperture, np.ndarray):
+            aperture = np.array(aperture)
+            if len(aperture.shape) == 1:
+                aperture = aperture.reshape((3, 1))
+
+        if not isinstance(principal_point_pixel, np.ndarray):
+            principal_point_pixel = np.array(principal_point_pixel)
+            if len(principal_point_pixel.shape) == 1:
+                principal_point_pixel = principal_point_pixel.reshape((2, 1))
+        
+        self.aperture = aperture
+        self.focal_length = focal_length
+        self.pixel_size = pixel_size
+        self.principal_point_pixel = principal_point_pixel
+        principal_point = self.get_principal_point_from_aperture()
+        self.move_plane(displacement=principal_point - aperture) 
+        
+        #NOTE: For the camera, horizontal plane direction is the self.vertical_direction 
+        self.horizontal_direction = self.get_horizontal_direction()
+        self.vertical_direction = self.get_vertical_direction()
+
+    def get_principal_point_from_aperture(self):
+        return self.aperture - self.focal_length * self.normal
+        
+    def initialize_ray(self, pixel):
+        """
+        Converts pixel coordinates to world coordinates and initializes a ray.
+        """
+        pixels = self.pixels_to_world(pixel)
+        ray = Ray()
+        aperture = np.repeat(self.aperture, pixels.shape[1], axis=1)
+        ray.build_ray(pixels, aperture)
+        return ray
+    
+    def pixels_to_world(self, digital_pixels):
+        """
+        Convert pixel coordinates to world coordinates.
+        pixels: (N,2) array of pixel coordinates
+        """
+        digital_pixels = digital_pixels - self.principal_point_pixel #NOTE: Center is the principal point
+        digital_pixels = digital_pixels * self.pixel_size
+        digital_pixels[1,:] = -digital_pixels[1,:] # Flip the y-axis
+        # NOTE: For the camera, horizontal plane direction is the self.vertical_direction
+        pixels = digital_pixels[0,:] * self.vertical_direction + digital_pixels[1,:] * self.horizontal_direction
+        pixels = pixels + self.center
+        return pixels
+
+def visualize_camera_configuration(camera=None, prism=None, pixels=None):
+    """
+    Visualize the camera configuration.
+    """
+    if camera is None:
+        camera = Camera()
+    
+    if prism is None:
+        prism_center = camera.aperture + camera.normal * 8
+        prism = Prism(prism_size=[2.,2.,2.], prism_center=prism_center)
+            
+    if pixels is None:
+        pixels = np.array([1,1])[:, None]
+    
+    ray = camera.initialize_ray(pixels)
+    prism.trace_ray(ray.origin, ray.origin + ray.direction)
+    fig, ax = camera.visualize()
+    fig, ax = prism.visualize_prism_and_ray(fig=fig, ax=ax)
+    ax.scatter(camera.aperture[0], camera.aperture[1], camera.aperture[2], c='black', s=10)
+    ax.set_aspect('equal', adjustable='datalim')        
+    return fig, ax
+
+
 # %% Camera class
-class Camera():
+""" class Camera():
     def __init__(self, focal_length, sensor_size, image_size, principal_point):
-        """
-        Parameters:
-        - focal_length (2-D list): X and ocal length of the camera.
-        """
+
+#        Parameters:
+#        - focal_length (2-D list): X and ocal length of the camera.
+
         self.focal_length = focal_length
         self.sensor_size = sensor_size
         self.image_size = image_size
@@ -433,27 +541,27 @@ class Camera():
                          [0, 0, 1]])
 
     def get_extrinsic(self, angles, t_vec):
-        """
-        Get extrinsic matrix.
-        Parameters:
-        - angles (2-D list): Rotation angles in x, y, and z directions.
-        - t_vec (2-D list): Translation vector.
-        Returns:
-        - extrinsic (np.array): Extrinsic matrix.
-        """
+
+#        Get extrinsic matrix.
+#        Parameters:
+#        - angles (2-D list): Rotation angles in x, y, and z directions.
+#        - t_vec (2-D list): Translation vector.
+#        Returns:
+#        - extrinsic (np.array): Extrinsic matrix.
+ 
         extrinsic = np.eye(4)
         extrinsic[:3, :3] = self.get_rotation_matrix(angles)
         extrinsic[:3, 3] = t_vec
         return extrinsic
 
     def project_points(self, points):
-        """
-        Project 3D points to 2D image plane.
-        Parameters:
-        - points (np.array): 3D points in world coordinates.
-        Returns:
-        - points_2d (np.array): 2D points in image coordinates.
-        """
+
+#        Project 3D points to 2D image plane.
+#        Parameters:
+#        - points (np.array): 3D points in world coordinates.
+#        Returns:
+#        - points_2d (np.array): 2D points in image coordinates.
+
         points_2d = np.zeros((points.shape[0], 2))
         for i in range(points.shape[0]):
             points_2d[i] = self.get_projection_matrix() @ points[i]
@@ -461,27 +569,27 @@ class Camera():
         return points_2d
 
     def get_rotation_matrix(self, angles):
-        """
-        Get rotation matrix.
-        Parameters:
-        - angles (2-D list): Rotation angles in x, y, and z directions.
-        Returns:
-        - rotation (np.array): Rotation matrix.
-        """
+
+#        Get rotation matrix.
+#        Parameters:
+#        - angles (2-D list): Rotation angles in x, y, and z directions.
+#        Returns:
+#        - rotation (np.array): Rotation matrix.
+
         rotation = np.eye(3)
         for i in range(3):
             rotation = rotation @ self.get_rotation_matrix_single(angles[i], i)
         return rotation
     
     def get_rotation_matrix_single(self, angle, axis):
-        """
-        Get rotation matrix for a single axis.
-        Parameters:
-        - angle (float): Rotation angle.
-        - axis (int): Axis of rotation (0: x, 1: y, 2: z).
-        Returns:
-        - rotation (np.array): Rotation matrix.
-        """
+
+#        Get rotation matrix for a single axis.
+#        Parameters:
+#        - angle (float): Rotation angle.
+#        - axis (int): Axis of rotation (0: x, 1: y, 2: z).
+#        Returns:
+#        - rotation (np.array): Rotation matrix.
+ 
         rotation = np.eye(3)
         if axis == 0:
             rotation[1, 1] = np.cos(angle)
@@ -498,7 +606,7 @@ class Camera():
             rotation[0, 1] = -np.sin(angle)
             rotation[1, 0] = np.sin(angle)
             rotation[1, 1] = np.cos(angle)
-        return rotation
+        return rotation """
 
 class OpticalPlane(Plane):
     def __init__(self, alpha=0., beta=0., gamma=0., center=[0.,0.,0.], 
@@ -511,12 +619,16 @@ class OpticalPlane(Plane):
 
     def reflect_ray(self, ray):
         intersection = self.get_intersection(ray)
-        normal = self.normal[:,0]
-        cosi = np.dot(ray.direction, normal)
-        if cosi < 0:
-            normal = -normal
-            cosi = -cosi
-        displacement = 2 * (ray.direction - cosi * normal)
+        normal = self.normal
+        cosi = np.dot(ray.direction.T, normal)
+
+        normal_multiplier = np.ones(cosi.shape)
+        normal_multiplier[cosi < 0] = -1
+        
+#        if cosi < 0:
+#            normal = -normal
+        cosi = np.abs(cosi)
+        displacement = 2 * (ray.direction - cosi * normal * normal_multiplier)
         reflected_ray = Ray()
         reflected_ray.origin = intersection
         reflected_ray.direction = displacement - ray.direction
@@ -534,26 +646,38 @@ class OpticalPlane(Plane):
         """
         #print(f'Input ray direction: {ray.direction}')
         intersection = self.get_intersection(ray)
-        normal = self.normal[:,0]
+        normal = self.normal
         refractive_idx_1 = self.refractive_idx_1
         refractive_idx_2 = self.refractive_idx_2
         #mat1 = R.align_vectors(np.array([[0, 1, 0]]), normal[None, :])
         
         #incoming_ray_vertical = mat1[0].apply(ray.direction)
         #r2 = np.arctan2(incoming_ray_vertical[1], incoming_ray_vertical[0])
-        cosi = np.dot(ray.direction, normal) #angle of incidence
+        cosi = np.dot(ray.direction.T, normal) #angle of incidence
         cosi = np.clip(cosi, -1., 1.) # floating point errors can lead to cosi being slightly outside [-1, 1]
-        if cosi < 0: # ray within the prism
-            normal = -normal
-            cosi = -cosi
-        else:
-            temp = refractive_idx_1
-            refractive_idx_1 = refractive_idx_2
-            refractive_idx_2 = temp
+        #normal_inverter = np.zeros(cosi.shape)
+        #normal_inverter[cosi < 0] = -1
+        normal_multiplier = np.ones(cosi.shape)
+        normal_multiplier[cosi < 0] = -1
+        refractive_idx_1 = np.repeat(np.array([refractive_idx_1])[:,None], cosi.shape[0], axis=0)
+        refractive_idx_2 = np.repeat(np.array([refractive_idx_2])[:,None], cosi.shape[0], axis=0)
+        temp = refractive_idx_1.copy()
+        refractive_idx_1[cosi > 0] = refractive_idx_2[cosi > 0]
+        refractive_idx_2[cosi > 0] = temp[cosi > 0]
+        #if cosi < 0: # ray within the prism
+            #normal = -normal
+        #    print('')
+        #else:
+        #    temp = refractive_idx_1
+        #    refractive_idx_1 = refractive_idx_2
+        #    refractive_idx_2 = temp
+        
+        cosi = np.abs(cosi)
+        
         sini = np.sqrt(1 - cosi**2)
         sinr = refractive_idx_1 * sini / refractive_idx_2
         cosr = np.sqrt(1 - sinr**2)
-        ray_displacement = refractive_idx_1 / refractive_idx_2 * (cosr - cosi) * normal
+        ray_displacement = refractive_idx_1 / refractive_idx_2 * (cosr - cosi) * normal * normal_multiplier
         #print(f'cosr {cosr}, cosi {cosi}, sini {sini}, sinr {sinr}, ')
         #print(f'r {180/np.pi * np.arcsin(sinr)}, i {180/np.pi * np.arcsin(sini)}')
         #sinr2 = refractive_idx_1 * np.sqrt(1 - np.dot(ray.direction, normal)**2) / refractive_idx_2 # Angle of refraction in rotated frame  
@@ -574,7 +698,7 @@ class OpticalPlane(Plane):
 # %% Prism class
 class Prism():
 
-    def __init__(self, prism_size=[1.,1.,1.], prism_angles=[0.,0.,0.], prism_center=[0.,0.,0.], refractive_index_glass=1.5, refractive_index_air=1.):
+    def __init__(self, prism_size=[1.,1.,1.], prism_angles=[0.,np.pi/2,np.pi/2], prism_center=[0.,0.,0.], refractive_index_glass=1.5, refractive_index_air=1.):
         """
         Parameters:
         - prism_size (list): Length (X), width (Z) and height (Y) of the prism.
@@ -582,6 +706,11 @@ class Prism():
         - prism_center (list): Center of the first surface of the prism. (surface facing the camera)
         """
         
+        if not isinstance(prism_center, np.ndarray):
+            prism_center = np.array(prism_center)
+            if len(prism_center.shape) == 1:
+                prism_center = prism_center.reshape((3, 1))
+
         self.prism_size = prism_size
         self.prism_angles = prism_angles
         self.prism_center = prism_center
@@ -621,6 +750,17 @@ class Prism():
 
 
     def trace_ray(self, origin_point=[0.,0.6,0.25], target_point=[0.,0.4,0.]):
+        if not isinstance(origin_point, np.ndarray):
+            origin_point = np.array(origin_point)
+            if len(origin_point.shape) == 1:
+                origin_point = origin_point.reshape((3, 1))
+
+        if not isinstance(target_point, np.ndarray):
+            target_point = np.array(target_point)
+            if len(target_point.shape) == 1:
+                target_point = target_point.reshape((3, 1))
+        
+        
         self.ray1 = Ray()
         self.ray1.build_ray(origin_point, target_point)            
         self.ray2 = self.plane1.refract_ray(self.ray1)
@@ -651,7 +791,7 @@ class Prism():
             fig = plt.figure(figsize=(10,10))
         if ax is None:
             ax = fig.add_subplot(111, projection='3d')
-        fig, ax = self.plane1.visualize(fig, ax)
+        fig, ax = self.plane1.visualize(fig, ax, color=[0.5, 0.5, 0.5])
         fig, ax = self.plane2.visualize(fig, ax, color=[[0.5, 0.5, 0.5]])
         fig, ax = self.plane3.visualize(fig, ax, color=[0.5, 0.5, 0.5])
         fig, ax = self.ray1.visualize(fig, ax)
@@ -699,7 +839,7 @@ if __name__=="__main__":
         n_glass = 1.55
         n_air = 1.
         prism_alpha = 0.
-        prism_beta = -np.pi / 2
+        prism_beta = np.pi / 2
         prism_gamma = np.pi / 2 
         prism_center = np.array([0.,0.,0.])[:, None]
         
@@ -708,7 +848,7 @@ if __name__=="__main__":
                       refractive_index_air=n_air)
         
         
-        origin_point=[0.,0.6,0.25] 
+        origin_point=[0.,0.6,-0.25] 
         target_point=[0.,0.4,0.]
         prism.trace_ray(origin_point, target_point) 
         fig, ax = prism.visualize_prism_and_ray()
