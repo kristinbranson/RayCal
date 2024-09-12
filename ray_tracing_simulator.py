@@ -8,8 +8,9 @@ import pickle
 from config import Config
 from scipy.spatial.transform import Rotation as R
 import torch
-#mpl.use('TkAgg') # Use this if working on the PC
-mpl.use('QtAgg') # Use this if working remotely with NoMachine
+import torch.nn as nn
+mpl.use('TkAgg') # Use this if working on the PC
+#mpl.use('QtAgg') # Use this if working remotely with NoMachine
 plt.ion()
 
 pi = torch.tensor(np.pi)
@@ -177,7 +178,6 @@ class Plane():
                 beta = 0.
             if gamma is None:
                 gamma = 0.
-
             normal = self.angles_to_normal(alpha=alpha, beta=beta, gamma=gamma)
             
         if not isinstance(normal, torch.Tensor):
@@ -199,60 +199,84 @@ class Plane():
         self.horizontal_direction = self.get_horizontal_direction()
         self.vertical_direction = self.get_vertical_direction()
         
-    def get_horizontal_direction(self):
-        horizontal_direction = torch.tensor([0., 0., -1.], dtype=torch.float32).unsqueeze(-1)
-        rot_mat = rotz(self.gamma) @ roty(self.beta) @ rotx(self.alpha) # Rotation matrix        
-        horizontal_direction = rot_mat @ horizontal_direction
+    def get_horizontal_direction(self, original_horizontal_direction=[0., 0., -1.], rot_mat=None):
+        #NOTE: You need the original vertical direction in case the plane has been rotated
+        if not isinstance(original_horizontal_direction, torch.Tensor):
+            original_horizontal_direction = torch.tensor(original_horizontal_direction, dtype=torch.float32)
+        if len(original_horizontal_direction.shape) == 1:
+            original_horizontal_direction = original_horizontal_direction.unsqueeze(-1)
+        #horizontal_direction = torch.tensor([0., 0., -1.], dtype=torch.float32).unsqueeze(-1)
+        if rot_mat is None:
+            #rot_mat = rotz(self.gamma) @ roty(self.beta) @ rotx(self.alpha) # Rotation matrix        
+            rot_mat = self.get_rot_mat(self.alpha, self.beta, self.gamma)
+        horizontal_direction = rot_mat @ original_horizontal_direction
         return horizontal_direction
     
-    def get_vertical_direction(self):
-        vertical_direction = torch.tensor([0., 1., 0.], dtype=torch.float32).unsqueeze(-1)
-        rot_mat = rotz(self.gamma) @ roty(self.beta) @ rotx(self.alpha) # Rotation matrix        
-        vertical_direction = rot_mat @ vertical_direction
+    def get_vertical_direction(self, original_vertical_direction=[0., 1., 0.], rot_mat=None):
+        #NOTE: You need the original vertical direction in case the plane has been rotated
+        if not isinstance(original_vertical_direction, torch.Tensor):
+            original_vertical_direction = torch.tensor(original_vertical_direction, dtype=torch.float32)
+        if len(original_vertical_direction.shape) == 1:
+            original_vertical_direction = original_vertical_direction.unsqueeze(-1)
+        #vertical_direction = torch.tensor([0., 1., 0.], dtype=torch.float32).unsqueeze(-1)
+        if rot_mat is None:
+            #rot_mat = rotz(self.gamma) @ roty(self.beta) @ rotx(self.alpha) # Rotation matrix        
+            rot_mat = self.get_rot_mat(self.alpha, self.beta, self.gamma)
+        vertical_direction = rot_mat @ original_vertical_direction
         return vertical_direction
 
-    def rotate_plane(self, alpha=0., beta=0., gamma=0.):
+    def rotate_plane(self, alpha=0., beta=0., gamma=0., rot_mat=None):
         normal = self.rotate_normal(normal=self.normal, alpha=alpha,
-                                     beta=beta, gamma=gamma)
-        sides = self.rotate_sides(side1=self.sides[0], 
+                                     beta=beta, gamma=gamma, rot_mat=rot_mat)
+        sides = self.rotate_sides(side1=self.sides[0],
                                   side2=self.sides[1],
                                   side3=self.sides[2],
                                   side4=self.sides[3],
                                   alpha=alpha,
                                   beta=beta,
-                                  gamma=gamma)
-        center = self.rotate_center(self.center, alpha, beta, gamma)
+                                  gamma=gamma,
+                                  rot_mat=rot_mat)
+        center = self.rotate_center(self.center, alpha, beta, gamma, rot_mat=rot_mat)
         self.update_center(center)
-        alpha, beta, gamma = self.get_angles(normal, sides)    
+        alpha, beta, gamma = self.get_angles(normal, sides)
         self.update_normal(normal)
         self.update_angles(alpha, beta, gamma)        
-        self.horizontal_direction = self.get_horizontal_direction() #Note that angles have been updated first
-        self.vertical_direction = self.get_vertical_direction() #Note that angles have been updated first
+        self.horizontal_direction = self.get_horizontal_direction(
+            original_horizontal_direction=self.horizontal_direction,
+            rot_mat=rot_mat) # Note that angles have been updated first
+        self.vertical_direction = self.get_vertical_direction(
+            original_vertical_direction=self.vertical_direction, 
+            rot_mat=rot_mat) # Note that angles have been updated first
         self.update_sides(sides)
-
         
     def move_plane(self, displacement):
         self.center = self.center + displacement
         for i, side in enumerate(self.sides):
+            # Side is defined by two end points. Displace each end point by 'displacement'
             self.sides[i][:,0] = side[:,0] + displacement[:,0]
             self.sides[i][:,1] = side[:,1] + displacement[:,0]
     
-    def rotate_center(self, center, alpha=0., beta=0., gamma=0.):
-        Rx = rotx(alpha)
-        Ry = roty(beta)
-        Rz = rotz(gamma)
-        center = Rz @ Ry @ Rx @ center
+    def rotate_center(self, center, alpha=0., beta=0., gamma=0., rot_mat=None):
+        if rot_mat is None:    
+            #Rx = rotx(alpha)
+            #Ry = roty(beta)
+            #Rz = rotz(gamma)
+            rot_mat = self.get_rot_mat(alpha, beta, gamma) # Rotation matrix
+        center = rot_mat @ center
         return center
 
-    def rotate_normal(self, normal, alpha=0., beta=0., gamma=0.):
+    def rotate_normal(self, normal, alpha=0., beta=0., gamma=0., rot_mat=None):
         if not isinstance(normal, torch.Tensor):
             normal = torch.tensor(normal)
         if len(normal.shape) == 1:
             normal = normal.reshape((3, 1))
-        Rx = rotx(alpha)
-        Ry = roty(beta)
-        Rz = rotz(gamma)
-        normal = Rz @ Ry @ Rx @ normal
+        if rot_mat is None:
+            #Rx = rotx(alpha)
+            #Ry = roty(beta)
+            #Rz = rotz(gamma)
+            rot_mat = self.get_rot_mat(alpha, beta, gamma) # Rotation matrix
+        
+        normal = rot_mat @ normal
         return normal
 
     def angles_to_sides(self, alpha, beta, gamma):
@@ -300,7 +324,7 @@ class Plane():
         normal = Rz @ Ry @ Rx @ normal
         return normal
     
-    def get_angles(self, norma=None, sides=None):
+    def get_angles(self, normal=None, sides=None):
         """
         Get the angles of the plane with respect to the x, y, and z axes.
         Given the normal and the sides of the rotated plane.
@@ -312,21 +336,21 @@ class Plane():
             sides = self.sides
         s10 = sides[0][:,0].unsqueeze(-1) - self.center       
 
-        if norma is None:
-            norma = self.normal
-        if not isinstance(norma, torch.Tensor):
-            norma = torch.tensor(norma)
-        if len(norma.shape) == 1:
-            norma = norma.reshape((3, 1))
+        if normal is None:
+            normal = self.normal
+        if not isinstance(normal, torch.Tensor):
+            normal = torch.tensor(normal)
+        if len(normal.shape) == 1:
+            normal = normal.reshape((3, 1))
         # Make sure the normal vector is normalized
-        norma = norma / torch.linalg.vector_norm(norma)
-        gamma = torch.arctan2(norma[1], norma[0])[0]
+        normal = normal / torch.linalg.vector_norm(normal)
+        gamma = torch.arctan2(normal[1], normal[0])[0]
 
-        norma = rotz(-gamma) @ norma
+        normal = rotz(-gamma) @ normal
         s10 = rotz(-gamma) @ s10
-        beta = torch.arctan2(-norma[2], norma[0])[0]
+        beta = torch.arctan2(-normal[2], normal[0])[0]
 
-        norma = roty(-beta) @ norma
+        normal = roty(-beta) @ normal
         s10 = roty(-beta) @ s10
 
         assert torch.abs(s10[0]) < 1e-5
@@ -346,6 +370,9 @@ class Plane():
 
     def update_center(self, center):
         self.center = center.to(torch.float32)
+
+    def get_rot_mat(self, alpha=0., beta=0., gamma=0.):
+        return rotz(gamma) @ roty(beta) @ rotx(alpha) # Rotation matrix
 
     def reposition(self, alpha=None, beta=None, gamma=None, center=None):
         """
@@ -403,7 +430,7 @@ class Plane():
         ray.t = t
         return intersection
 
-    def rotate_sides(self, side1=None, side2=None, side3=None, side4=None, alpha=None, beta=None, gamma=None):
+    def rotate_sides(self, side1=None, side2=None, side3=None, side4=None, alpha=None, beta=None, gamma=None, rot_mat=None):
         """
         Get the sides of the plane.
         Returns:
@@ -436,7 +463,10 @@ class Plane():
             beta = 0
         if gamma is None:
             gamma = 0
-        rot_mat = rotz(gamma) @ roty(beta) @ rotx(alpha) # Rotation matrix        
+        if rot_mat is None:
+            self.get_rot_mat(alpha, beta, gamma)            
+            rot_mat = self.get_rot_mat(alpha, beta, gamma) # Rotation matrix
+
         side1 = rot_mat @ side1
         side2 = rot_mat @ side2
         side3 = rot_mat @ side3
@@ -479,7 +509,7 @@ class Plane():
 class Camera(Plane):
     # NOTE: The plane defines the camera sensor, not the aperture plane
     def __init__(self, alpha=0, beta=-pi/2, gamma=0., aperture=[0.,0.,0.], 
-                 normal=None, height=4.14, width=6.62, focal_length=19.65, pixel_size=3.45e-3, 
+                 normal=None, height=4.14, width=6.624, focal_length=19.65, pixel_size=3.45e-3, 
                  principal_point_pixel=None):        
                  
         super().__init__(normal=normal, center=[0.,0.,0], alpha=alpha, beta=beta, gamma=gamma, a=height, b=width)
@@ -497,15 +527,13 @@ class Camera(Plane):
             if len(principal_point_pixel.shape) == 1:
                 principal_point_pixel = principal_point_pixel.reshape((2, 1))
 
-        
-
-
         self.aperture = aperture
         self.focal_length = focal_length
         self.pixel_size = pixel_size
         self.principal_point_pixel = principal_point_pixel
         principal_point = self.get_principal_point_from_aperture()
         self.move_plane(displacement=principal_point - aperture)
+
         
         #NOTE: For the camera, horizontal plane direction is the self.vertical_direction 
         self.horizontal_direction = self.get_horizontal_direction()
@@ -541,6 +569,16 @@ class Camera(Plane):
         pixels = digital_pixels[0,:] * (-1) * self.horizontal_direction + digital_pixels[1,:] * (-1) * self.vertical_direction
         pixels = pixels + self.center
         return pixels
+    
+    def update_camera_pose(self, R, T):
+        """
+        Update the camera pose, given the camera extrinsics as Rotation Matrix (R) and Translation vector (t)
+        """
+        self.move_plane(displacement=-T)
+        self.rotate_plane(rot_mat=R)        
+        self.aperture = self.center + self.focal_length * self.normal
+
+
 
 def visualize_camera_configuration(camera=None, prism=None, pixels=None, ax=None, fig=None):
     """
@@ -566,91 +604,7 @@ def visualize_camera_configuration(camera=None, prism=None, pixels=None, ax=None
     ax.set_aspect('equal', adjustable='datalim')        
     return fig, ax, prism, camera
 
-
-# %% Camera class
-""" class Camera():
-    def __init__(self, focal_length, sensor_size, image_size, principal_point):
-
-#        Parameters:
-#        - focal_length (2-D list): X and ocal length of the camera.
-
-        self.focal_length = focal_length
-        self.sensor_size = sensor_size
-        self.image_size = image_size
-        self.principal_point = principal_point
-
-    def get_projection_matrix(self):
-        return np.array([[self.focal_length[0], 0, self.principal_point[0]],
-                         [0, self.focal_length[1], self.principal_point[1]],
-                         [0, 0, 1]])
-
-    def get_extrinsic(self, angles, t_vec):
-
-#        Get extrinsic matrix.
-#        Parameters:
-#        - angles (2-D list): Rotation angles in x, y, and z directions.
-#        - t_vec (2-D list): Translation vector.
-#        Returns:
-#        - extrinsic (np.array): Extrinsic matrix.
- 
-        extrinsic = np.eye(4)
-        extrinsic[:3, :3] = self.get_rotation_matrix(angles)
-        extrinsic[:3, 3] = t_vec
-        return extrinsic
-
-    def project_points(self, points):
-
-#        Project 3D points to 2D image plane.
-#        Parameters:
-#        - points (np.array): 3D points in world coordinates.
-#        Returns:
-#        - points_2d (np.array): 2D points in image coordinates.
-
-        points_2d = np.zeros((points.shape[0], 2))
-        for i in range(points.shape[0]):
-            points_2d[i] = self.get_projection_matrix() @ points[i]
-            points_2d[i] /= points_2d[i][2]
-        return points_2d
-
-    def get_rotation_matrix(self, angles):
-
-#        Get rotation matrix.
-#        Parameters:
-#        - angles (2-D list): Rotation angles in x, y, and z directions.
-#        Returns:
-#        - rotation (np.array): Rotation matrix.
-
-        rotation = np.eye(3)
-        for i in range(3):
-            rotation = rotation @ self.get_rotation_matrix_single(angles[i], i)
-        return rotation
-    
-    def get_rotation_matrix_single(self, angle, axis):
-
-#        Get rotation matrix for a single axis.
-#        Parameters:
-#        - angle (float): Rotation angle.
-#        - axis (int): Axis of rotation (0: x, 1: y, 2: z).
-#        Returns:
-#        - rotation (np.array): Rotation matrix.
- 
-        rotation = np.eye(3)
-        if axis == 0:
-            rotation[1, 1] = np.cos(angle)
-            rotation[1, 2] = -np.sin(angle)
-            rotation[2, 1] = np.sin(angle)
-            rotation[2, 2] = np.cos(angle)
-        elif axis == 1:
-            rotation[0, 0] = np.cos(angle)
-            rotation[0, 2] = np.sin(angle)
-            rotation[2, 0] = -np.sin(angle)
-            rotation[2, 2] = np.cos(angle)
-        elif axis == 2:
-            rotation[0, 0] = np.cos(angle)
-            rotation[0, 1] = -np.sin(angle)
-            rotation[1, 0] = np.sin(angle)
-            rotation[1, 1] = np.cos(angle)
-        return rotation """
+# %% Clas OpticalPlane
 
 class OpticalPlane(Plane):
     def __init__(self, alpha=0., beta=0., gamma=0., center=[0.,0.,0.], 
@@ -849,6 +803,20 @@ def closest_point(ray1, ray2):
     c1 = ray1.origin + ((torch.linalg.vecdot(ray2.origin - ray1.origin, n2, dim=0)) / torch.linalg.vecdot(ray1.direction, n2, dim=0).unsqueeze(0)) * ray1.direction
     c2 = ray2.origin + ((torch.linalg.vecdot(ray1.origin - ray2.origin, n1, dim=0)) / torch.linalg.vecdot(ray2.direction, n1, dim=0).unsqueeze(0)) * ray2.direction
     return (c1 + c2) / 2, torch.linalg.norm(c1 - c2, dim=0)
+
+
+# %% Arena class
+class Arena(nn.Module):
+    def __init__(self, principal_point_pixel_cam_0, principal_point_pixel_cam_1, focal_length_cam_0, focal_length_cam_1):
+        super().__init__()
+        principal_point_pixel_cam_0 = [638.040 - 1, 492.499 - 1] # This comes from the calibration results
+        principal_point_pixel_cam_1 = [659.3778 - 1, 521.5078 - 1]
+        self.camera1 = Camera(principal_point_pixel=principal_point_pixel_cam_0, focal_length=None)
+        self.camera2 = Camera(principal_point_pixel=principal_point_pixel_cam_1, focal_length=19.697)
+        self.prism = None
+
+    def forward(self):
+        return 0
 
 optical = True
 if __name__=="__main__":
