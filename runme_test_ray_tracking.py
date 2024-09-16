@@ -99,7 +99,8 @@ prism_lims = [prism.prism_center - torch.tensor(prism.prism_size).unsqueeze(-1),
 ax[0].set_xlim(prism_lims[0][0], prism_lims[1][0])
 ax[0].set_ylim(prism_lims[0][1], prism_lims[1][1])
 ax[0].set_zlim(prism_lims[0][2], prism_lims[1][2])
-cam_lims = [camera.center - 1, camera.center + 1]
+cam_lims = [camera.center.detach().numpy() - 1, 
+            camera.center.detach().numpy() + 1]
 _, ax[1], _, _ = visualize_camera_configuration(pixels=pixels, ax=ax[1])
 ax[1].set_xlim(cam_lims[0][0], cam_lims[1][0])
 ax[1].set_ylim(cam_lims[0][1], cam_lims[1][1])

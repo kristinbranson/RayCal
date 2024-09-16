@@ -122,21 +122,30 @@ class Ray():
         """
         Visualize the ray.
         """
-        t = self.t
+        t = self.t.detach().numpy()
         if fig is None:
             fig = plt.figure()
             ax = fig.add_subplot(111, projection='3d')
-        ax.scatter(self.origin[0], self.origin[1], self.origin[2], s=1, marker='o', color='black')
+        ax.scatter(self.origin[0].detach().numpy(), 
+                   self.origin[1].detach().numpy(), 
+                   self.origin[2].detach().numpy(), 
+                   s=1, 
+                   marker='o', 
+                   color='black')
         #NOTE: t has a shape of (N,1) where N is the number of rays
         for ray_id in range(self.t.shape[0]):
-            ax.plot([self.origin[0, ray_id].numpy(),
-             (self.origin[0, ray_id] + t[ray_id, 0] * self.direction[0, ray_id]).numpy()],
-             [self.origin[1, ray_id].numpy(), (self.origin[1, ray_id] + t[ray_id, 0] * self.direction[1, ray_id]).numpy()],
-             [self.origin[2, ray_id].numpy(), (self.origin[2, ray_id] + t[ray_id, 0] * self.direction[2, ray_id]).numpy()],
+            ax.plot([self.origin[0, ray_id].detach().numpy(),
+             (self.origin[0, ray_id] + t[ray_id, 0] * self.direction[0, ray_id]).detach().numpy()],
+             [self.origin[1, ray_id].detach().numpy(), (self.origin[1, ray_id] + t[ray_id, 0] * self.direction[1, ray_id]).detach().numpy()],
+             [self.origin[2, ray_id].detach().numpy(), (self.origin[2, ray_id] + t[ray_id, 0] * self.direction[2, ray_id]).detach().numpy()],
              color='black', linewidth=0.2)
 
-        ax.quiver(self.origin[0], self.origin[1], self.origin[2], 
-                  t * self.direction[0], t * self.direction[1], t * self.direction[2],
+        ax.quiver(self.origin[0].detach().numpy(), 
+                  self.origin[1].detach().numpy(), 
+                  self.origin[2].detach().numpy(), 
+                  t * self.direction[0].detach().numpy(), 
+                  t * self.direction[1].detach().numpy(), 
+                  t * self.direction[2].detach().numpy(),
                   length=0.2, linewidth=0.1, color='black', normalize=True)
         ax.set_xlabel('X (mm)')
         ax.set_ylabel('Y (mm)')
@@ -171,6 +180,13 @@ class Plane():
         self.a = a
         self.b = b
         
+        if not isinstance(alpha, torch.Tensor):
+            alpha = torch.tensor(alpha, dtype=torch.float32)
+        if not isinstance(beta, torch.Tensor):
+            beta = torch.tensor(beta, dtype=torch.float32)
+        if not isinstance(gamma, torch.Tensor):
+            gamma = torch.tensor(gamma, dtype=torch.float32)
+
         if normal is None:
             if alpha is None:
                 alpha = 0.
@@ -190,12 +206,18 @@ class Plane():
         
         if len(center.shape) == 1:
             center = center.reshape((3, 1))
-        
+                        
+        self.a.requires_grad_()
+        self.b.requires_grad_()
         self.update_center(center)
+        self.center.requires_grad_()
         sides = self.angles_to_sides(alpha=alpha, beta=beta, gamma=gamma)
         self.update_normal(normal)
         self.update_sides(sides)
         self.update_angles(alpha, beta, gamma)
+        self.alpha.requires_grad_()
+        self.beta.requires_grad_()
+        self.gamma.requires_grad_()
         self.horizontal_direction = self.get_horizontal_direction()
         self.vertical_direction = self.get_vertical_direction()
         
@@ -493,12 +515,20 @@ class Plane():
         if fig is None:
             fig = plt.figure()
             ax = fig.add_subplot(111, projection='3d')
-        ax.scatter(sampled_points[0], sampled_points[1], sampled_points[2], c=color, s=1, alpha=0.25)
-        ax.plot(s1[0].numpy(), s1[1].numpy(), s1[2].numpy(), c='black')
-        ax.plot(s2[0].numpy(), s2[1].numpy(), s2[2].numpy(), c='black')
-        ax.plot(s3[0].numpy(), s3[1].numpy(), s3[2].numpy(), c='black')
-        ax.plot(s4[0].numpy(), s4[1].numpy(), s4[2].numpy(), c='black')
-        ax.plot(normal_line[0].numpy(), normal_line[1].numpy(), normal_line[2].numpy(), c='black')
+        ax.scatter(sampled_points[0].detach().numpy(),
+                    sampled_points[1].detach().numpy(), 
+                    sampled_points[2].detach().numpy(),
+                    c=color,
+                    s=1,
+                    alpha=0.25)
+        ax.plot(s1[0].detach().numpy(), s1[1].detach().numpy(), s1[2].detach().numpy(), c='black')
+        ax.plot(s2[0].detach().numpy(), s2[1].detach().numpy(), s2[2].detach().numpy(), c='black')
+        ax.plot(s3[0].detach().numpy(), s3[1].detach().numpy(), s3[2].detach().numpy(), c='black')
+        ax.plot(s4[0].detach().numpy(), s4[1].detach().numpy(), s4[2].detach().numpy(), c='black')
+        ax.plot(normal_line[0].detach().numpy(),
+                normal_line[1].detach().numpy(), 
+                normal_line[2].detach().numpy(), 
+                c='black')
         ax.set_xlabel('X (mm)')
         ax.set_ylabel('Y (mm)')
         ax.set_zlabel('Z (mm)')
@@ -600,7 +630,10 @@ def visualize_camera_configuration(camera=None, prism=None, pixels=None, ax=None
     prism.trace_ray(ray.origin, ray.origin + ray.direction)
     fig, ax = camera.visualize(fig=fig, ax=ax)
     fig, ax = prism.visualize_prism_and_ray(fig=fig, ax=ax)
-    ax.scatter(camera.aperture[0], camera.aperture[1], camera.aperture[2], c='black', s=10)
+    ax.scatter(camera.aperture[0].detach().numpy(), 
+               camera.aperture[1].detach().numpy(), 
+               camera.aperture[2].detach().numpy(), 
+               c='black', s=10)
     ax.set_aspect('equal', adjustable='datalim')        
     return fig, ax, prism, camera
 
@@ -615,10 +648,13 @@ class OpticalPlane(Plane):
         if not isinstance(refractive_idx_1, torch.Tensor):
             refractive_idx_1 = torch.tensor(refractive_idx_1)
         if not isinstance(refractive_idx_2, torch.Tensor):
-            refractive_idx_2 = torch.tensor(refractive_idx_2)
-        
+            refractive_idx_2 = torch.tensor(refractive_idx_2)                
+
         self.refractive_idx_1 = refractive_idx_1
         self.refractive_idx_2 = refractive_idx_2
+        self.refractive_idx_1.requires_grad_()
+        self.refractive_idx_2.requires_grad_()
+
 
     def reflect_ray(self, ray):
         if self.center.dtype != ray.origin.dtype:
@@ -703,44 +739,53 @@ class Prism():
             prism_center = torch.tensor(prism_center)
             if len(prism_center.shape) == 1:
                 prism_center = prism_center.reshape((3, 1))
+                
 
         self.prism_size = prism_size
         self.prism_angles = prism_angles
         self.prism_center = prism_center
         self.refractive_index_glass = refractive_index_glass
-        n_air = refractive_index_air
-        n_glass = refractive_index_glass
-        prism_alpha, prism_beta, prism_gamma = prism_angles
-        plane1 = OpticalPlane(refractive_idx_1=n_air, refractive_idx_2=n_glass,
-                               a=prism_size[0], b=prism_size[1]) # Plane facing the camera
-        plane2_center = torch.tensor([plane1.center[0,0] - plane1.a/2,
-                                plane1.center[1,0],
-                                plane1.center[2,0]]).unsqueeze(-1)
-        plane2_b = plane1.b * torch.sqrt(torch.tensor(2))
-        plane2 = OpticalPlane(refractive_idx_1=n_air, refractive_idx_2=n_glass, 
-                              beta=pi/4 + pi, a = plane1.a, b=plane2_b, center=plane2_center)
+        self.refractive_index_air = refractive_index_air
+        #n_air = refractive_index_air
+        #n_glass = refractive_index_glass
+        #prism_alpha, prism_beta, prism_gamma = prism_angles
+        self.updatePrism()
         
-        plane3_center = torch.tensor([plane1.center[0,0] - plane1.a/2, 
-                                plane1.center[1,0],
-                                plane1.center[2,0] - plane1.b/2])
-        plane3 = OpticalPlane(refractive_idx_1=n_air, refractive_idx_2=n_glass, 
-                              beta=pi/2, a=prism_size[0], b=prism_size[2], center=plane3_center)
+    def updatePrism(self):
+        self.plane1 = OpticalPlane(refractive_idx_1=self.refractive_index_air,
+                                    refractive_idx_2=self.refractive_index_glass,
+                               a=self.prism_size[0], b=self.prism_size[1]) # Plane facing the camera
+        plane2_center = torch.tensor([self.plane1.center[0,0] - self.plane1.a/2,
+                                self.plane1.center[1,0],
+                                self.plane1.center[2,0]]).unsqueeze(-1)
+        plane2_b = self.plane1.b * torch.sqrt(torch.tensor(2))
+        self.plane2 = OpticalPlane(refractive_idx_1=self.refractive_index_air, refractive_idx_2=self.refractive_index_glass, 
+                              beta=pi/4 + pi, a = self.plane1.a, b=plane2_b, center=plane2_center)
+        
+        plane3_center = torch.tensor([self.plane1.center[0,0] - self.plane1.a/2, 
+                                self.plane1.center[1,0],
+                                self.plane1.center[2,0] - self.plane1.b/2])
+        self.plane3 = OpticalPlane(refractive_idx_1=self.refractive_index_air, 
+                                   refractive_idx_2=self.refractive_index_glass, 
+                              beta=pi/2, a=self.prism_size[0], b=self.prism_size[2], center=plane3_center)
+        
+        prism_alpha, prism_beta, prism_gamma = self.prism_angles
 
-        plane1.rotate_plane(alpha=prism_alpha,
+        self.plane1.rotate_plane(alpha=prism_alpha,
                             beta=prism_beta,
                             gamma=prism_gamma)
-        plane2.rotate_plane(alpha=prism_alpha,
+        self.plane2.rotate_plane(alpha=prism_alpha,
                             beta=prism_beta,
                             gamma=prism_gamma)
-        plane3.rotate_plane(alpha=prism_alpha,
+        self.plane3.rotate_plane(alpha=prism_alpha,
                             beta=prism_beta,
                             gamma=prism_gamma)
-        plane1.move_plane(prism_center)
-        plane2.move_plane(prism_center)
-        plane3.move_plane(prism_center)
-        self.plane1 = plane1
-        self.plane2 = plane2
-        self.plane3 = plane3
+        self.plane1.move_plane(self.prism_center)
+        self.plane2.move_plane(self.prism_center)
+        self.plane3.move_plane(self.prism_center)
+        #self.plane1 = plane1
+        #self.plane2 = plane2
+        #self.plane3 = plane3
 
     def trace_ray(self, origin_point=[0.,0.6,0.25], target_point=[0.,0.4,0.]):
         if not isinstance(origin_point, torch.Tensor):
