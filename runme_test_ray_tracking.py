@@ -15,7 +15,7 @@
 # ---
 
 # %% Imports
-from ray_tracing_simulator import Prism, Ray, Plane, OpticalPlane, Camera, visualize_camera_configuration, closest_point
+from ray_tracing_simulator import Prism, Ray, Plane, OpticalPlane, Camera, Arena, visualize_camera_configuration, closest_point
 import matplotlib.pyplot as plt
 import numpy as np  
 import torch
@@ -92,19 +92,22 @@ points = closest_point(prism.ray4, ray_direct)
 
 
 # %% Visualize camera configuration
-_, ax = plt.subplots(1, 2)
-fig, ax[0], _, _ = visualize_camera_configuration(pixels=pixels, ax=ax[0])
+fig = plt.figure()
+ax1 = fig.add_subplot(121, projection='3d')
+ax2 = fig.add_subplot(122, projection='3d')
+#_, ax = plt.subplots(1, 2, projection='3d')
+fig, ax1, _, _ = visualize_camera_configuration(pixels=pixels, fig=fig, ax=ax1)
 prism_lims = [prism.prism_center - torch.tensor(prism.prism_size).unsqueeze(-1), 
                 prism.prism_center + torch.tensor(prism.prism_size).unsqueeze(-1)]
-ax[0].set_xlim(prism_lims[0][0], prism_lims[1][0])
-ax[0].set_ylim(prism_lims[0][1], prism_lims[1][1])
-ax[0].set_zlim(prism_lims[0][2], prism_lims[1][2])
-cam_lims = [camera.center.detach().numpy() - 1, 
-            camera.center.detach().numpy() + 1]
-_, ax[1], _, _ = visualize_camera_configuration(pixels=pixels, ax=ax[1])
-ax[1].set_xlim(cam_lims[0][0], cam_lims[1][0])
-ax[1].set_ylim(cam_lims[0][1], cam_lims[1][1])
-ax[1].set_zlim(cam_lims[0][2], cam_lims[1][2])
+ax1.set_xlim(prism_lims[0][0], prism_lims[1][0])
+ax1.set_ylim(prism_lims[0][1], prism_lims[1][1])
+ax1.set_zlim(prism_lims[0][2], prism_lims[1][2])
+cam_lims = [camera.center.detach().numpy() - 5, 
+            camera.center.detach().numpy() + 5]
+_, ax2, _, _ = visualize_camera_configuration(pixels=pixels, fig=fig, ax=ax2)
+ax2.set_xlim(cam_lims[0][0], cam_lims[1][0])
+ax2.set_ylim(cam_lims[0][1], cam_lims[1][1])
+ax2.set_zlim(cam_lims[0][2], cam_lims[1][2])
 
 
 # %% Validate real camera rays: Calculate distance of the ray from ground truth 3-D points
@@ -124,7 +127,7 @@ ray_direct = camera.initialize_ray(undistorted_real_pixels)
 distance = ray_direct.distance_to_point(target_coordinates)
 
 
-# %% Visualize 'n_sample' rays traced from pixels
+# %% Visualize 'n_sample' rays traced from pixels (single camera)
 num_samples = 10
 test_idx = torch.randperm(undistorted_real_pixels.shape[1])[:num_samples]
 principal_point_pixel=[638.040, 492.499]
@@ -137,6 +140,7 @@ fig, ax = camera.visualize()
 ray_direct.t *= 160
 ray_direct.visualize(fig=fig, ax=ax)
 ax.scatter(target_coordinates[0], target_coordinates[1], target_coordinates[2], c='r')
+ax.set_title(f'{num_samples} rays traced from ball bearing centroid projections', fontsize=15)
 
 
 # %%  Visualize two cameras, given the rotation and translation matrix of one with respect to the other
@@ -150,6 +154,7 @@ camera2.update_camera_pose(R, T)
 fig, ax = camera1.visualize()
 camera2.visualize(fig=fig, ax=ax)
 ax.set_aspect('equal', adjustable='datalim') 
+ax.set_title('Two cameras with a given relative pose', fontsize=15)
 
 
 # %% Visualize rays from two cameras
@@ -181,6 +186,7 @@ fig, ax = camera2.visualize(fig=fig, ax=ax)
 fig, ax = ray_direct_1.visualize(fig=fig, ax=ax)
 fig, ax = ray_direct_2.visualize(fig=fig, ax=ax)
 ax.set_aspect('equal', adjustable='datalim')
+ax.set_title(f'{num_samples} rays from ball bearing centroid projections on two cameras', fontsize=15)
 
 
 # %%
@@ -212,5 +218,27 @@ recon_3D_error = torch.norm(recon_3D - target_coordinates, dim=0)
 print(f'Mean distance error for camera 1: {distance1.mean()}')
 print(f'Mean distance error for camera 2: {distance2.mean()}')
 print(f'Mean distance error for closest approach: {recon_3D_error.mean()}')
+
+# %% Testing Arena
+principal_point_pixel_cam_0 = [638.040 - 1, 492.499 - 1] # This comes from the calibration results
+principal_point_pixel_cam_1 = [659.3778 - 1, 521.5078 - 1]
+
+R = torch.tensor([[0.819301743677432, 0.0073199538315673, -0.573315856298274],
+                   [-1.41589415524092e-05, 0.999918760232094, 0.0127464793349662], 
+                   [0.573362583891418, -0.0104350951991858, 0.819235287436729]]).T
+T = torch.tensor([72.8566307938209, -0.980908710814855, 22.7386226749512])[:, None]
+
+focal_length_cam_1 = 19.65
+focal_length_cam_2 = 19.69
+
+prism_distance = 130.
+arena = Arena(principal_point_pixel_cam_0, 
+principal_point_pixel_cam_1, 
+focal_length_cam_1, 
+focal_length_cam_2, 
+R, 
+T, 
+prism_distance)
+
 
 # %%
