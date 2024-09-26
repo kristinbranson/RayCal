@@ -15,35 +15,101 @@
 # ---
 
 # %% Imports
-from ray_tracing_simulator import Prism, Ray, Plane, OpticalPlane, Camera, Arena, visualize_camera_configuration, closest_point
+from ray_tracing_simulator_nnModules_grad import Prism, Ray, Plane, ReflectingPlane, RefractingPlane, Camera, Arena, visualize_camera_configuration
 import matplotlib.pyplot as plt
 import numpy as np  
 import torch
 import scipy.io as sio
 import os
+import torch.optim as optim
+import torch.nn as nn
+from tqdm import tqdm
+#from torchsummary import summary
+torch.autograd.set_detect_anomaly(True)
 pi = torch.tensor(np.pi)
+test_output_folder = 'test_outputs'
+os.makedirs(test_output_folder, exist_ok=True)
 
+# %% Return angle of incidence and emergence for each plane in the prism, given input rays
+def calculate_angle_of_incidence(incident_ray, prism):
+    plane1, plane2, plane3 = prism.get_planes(prism.prism_center, prism.prism_angles)
+    ray1, ray2, ray3 = prism(incident_ray)
+    refraction_angle_i = torch.acos(torch.matmul(incident_ray.direction.T, -plane1.axes[:,0][:,None]))
+    refraction_angle_o = torch.acos(torch.matmul(ray1.direction.T, -plane1.axes[:,0][:,None]))
+    snells_law_angle = torch.asin(
+                            prism.refractive_index_air / prism.refractive_index_glass * torch.sin(refraction_angle_i)
+                            )
+    ray_1_angles_bundle = torch.stack([refraction_angle_i*180/pi, 
+        refraction_angle_o*180/pi, snells_law_angle*180/pi]
+        ).detach().numpy()
+
+    reflection_angle_i = torch.acos(torch.matmul(ray1.direction.T, plane2.axes[:,0][:,None]))
+    reflection_angle_o = torch.acos(torch.matmul(ray2.direction.T, -plane2.axes[:,0][:,None]))
+    ray_2_angles_bundle = torch.stack([reflection_angle_i*180/pi, 
+    reflection_angle_o*180/pi]).detach().numpy()
+
+    refraction_angle_i = torch.acos(torch.matmul(ray2.direction.T, plane3.axes[:,0][:,None]))
+    refraction_angle_o = torch.acos(torch.matmul(ray3.direction.T, plane3.axes[:,0][:,None]))
+    snells_law_angle = torch.asin(
+        prism.refractive_index_glass / prism.refractive_index_air * torch.sin(refraction_angle_i))
+    ray_3_angles_bundle = torch.stack([refraction_angle_i*180/pi, 
+    refraction_angle_o*180/pi, 
+    snells_law_angle*180/pi]).detach().numpy()
+
+    return ray_1_angles_bundle, ray_2_angles_bundle, ray_3_angles_bundle
+
+def plot_two_camera_figures(ang1, ang2):
+    """
+    ang1 is the set of angles for camera 1
+    ang2 is the set of angles for camera 2
+    """
+    fig, ax = plt.subplots(1, 2, figsize=(20, 10))
+    # Plot a straight line    
+    ax[0].scatter(ang1[0,:,0], ang1[1,:,0], s=0.75, color='red', label='Data')
+    ax[0].set_xlabel('Angle of incidence ($^o$)', fontsize=25)
+    ax[0].set_ylabel('Angle of refraction ($^o$)', fontsize=25)
+    ax[0].tick_params(axis='x', labelsize=15)
+    ax[0].tick_params(axis='y', labelsize=15)
+    ax[0].set_title('Camera 1', fontsize=25)    
+    x = np.linspace(ang1[0,:,0].min(), ang1[0,:,0].max(), 100)
+    y = x
+    ax[0].plot(x, y, 'r--', alpha=0.8, color='black', label='y=x')
+    ax[0].legend(fontsize=15, loc='upper left')
+      
+    ax[1].scatter(ang2[0,:,0], ang2[1,:,0], s=0.75, color='red', label='Data')
+    ax[1].set_xlabel('Angle of incidence ($^o$)', fontsize=25)
+    ax[1].set_ylabel('Angle of refraction ($^o$)', fontsize=25)
+    ax[1].tick_params(axis='x', labelsize=15)
+    ax[1].tick_params(axis='y', labelsize=15)
+    ax[1].set_title('Camera 2', fontsize=25)
+    # Plot a straight line  
+    x = np.linspace(ang2[0,:,0].min(), ang2[0,:,0].max(), 100)
+    y = x
+    ax[1].plot(x, y, 'r--', alpha=0.8, color='black', label='y=x')
+    ax[1].legend(fontsize=15, loc='upper left')
+    return fig, ax
+    
 
 # %% Testing class Plane
 # Single plane
-plane = Plane(alpha=pi/3, beta=pi/6, gamma=pi/10, center=[1.,0.,0.], a=1.,b=1.)
+plane = Plane(alpha=pi/3, beta=pi/6, gamma=pi/10, center=[1.,0.,0.], a=1., b=1.)
 _, ax = plane.visualize()
 ax.set_aspect('equal', adjustable='datalim')   
 
 
 # %% Testing class Ray
 # Single ray
-ray = Ray(origin=[0.,0.,0.], direction=[1.,0.,0.])
+ray = Ray(origin=torch.tensor([0.,0.,0.])[:,None], direction=torch.tensor([1.,0.,0.])[:,None])
 _, ax = ray.visualize()
 ax.set_aspect('equal', adjustable='datalim')   
 
 
 # %% Testing class OpticalPlane with a single ray refraction
 # Optical plane refraction
-plane = OpticalPlane(alpha=pi/3, beta=pi/6, gamma=pi/10, center=[0.,0.,0.], a=1., b=1., 
+plane = RefractingPlane(alpha=pi/3, beta=pi/6, gamma=pi/10, center=[0.,0.,0.], a=1., b=1., 
               refractive_idx_1=1., refractive_idx_2=1.5)
-incident_ray = Ray(origin=[-0.5,0.,0.], direction=[1.,0.,0.])
-refracted_ray = plane.refract_ray(incident_ray)
+incident_ray = Ray(origin=torch.tensor([-0.5,0.,0.])[:,None], direction=torch.tensor([1.,0.,0.])[:,None])
+refracted_ray = plane(incident_ray)
 fig, ax = plane.visualize()
 fig, ax = incident_ray.visualize(fig=fig, ax=ax)
 _, ax = refracted_ray.visualize(fig=fig, ax=ax)
@@ -52,10 +118,9 @@ ax.set_aspect('equal', adjustable='datalim')
 
 # %% Testing class OpticalPlane with a single ray reflection
 # Optical plane reflection
-plane = OpticalPlane(alpha=np.pi/3, beta=np.pi/6, gamma=np.pi/10, center=[0.,0.,0.], a=1.,b=1., 
-              refractive_idx_1=1., refractive_idx_2=1.5)
-incident_ray = Ray(origin=[-0.5,0.,0.], direction=[1.,0.,0.])
-reflected_ray = plane.reflect_ray(incident_ray)
+plane = ReflectingPlane(alpha=np.pi/3, beta=np.pi/6, gamma=np.pi/10, center=[0.,0.,0.], a=1.,b=1.)
+incident_ray = Ray(origin=torch.tensor([-0.5,0.,0.])[:,None], direction=torch.tensor([1.,0.,0.])[:,None])
+reflected_ray = plane(incident_ray)
 fig, ax = plane.visualize()
 fig, ax = incident_ray.visualize(fig=fig, ax=ax)
 _, ax = reflected_ray.visualize(fig=fig, ax=ax)
@@ -67,28 +132,29 @@ ax.set_aspect('equal', adjustable='datalim')
 n_glass = 1.55
 n_air = 1.
 prism_alpha = 0.
-prism_beta = pi / 2
-prism_gamma = pi / 2 
+prism_beta = 0.
+prism_gamma = 0.
 prism_center = np.array([0.,0.,0.])[:, None]
 prism = Prism(prism_size=[1.,1.,1.], prism_angles=[prism_alpha, prism_beta, prism_gamma], 
                 prism_center=prism_center, refractive_index_glass=n_glass, 
                 refractive_index_air=n_air)
-origin_point=[0.,0.6,-0.25] 
-target_point=[0.,0.37,0.]
-prism.trace_ray(origin_point, target_point) 
-fig, ax = prism.visualize_prism_and_ray()
-ax.set_aspect('equal', adjustable='datalim')        
+origin_point=torch.tensor([0.,0.6,-0.25])[:,None]
+target_point=torch.tensor([0.,0.37,0.])[:,None]
+ray = Ray(origin=origin_point, target=target_point)
+prism(ray)
+fig, ax = prism.visualize_prism_and_ray(ray)
+ax.set_aspect('equal', adjustable='datalim')
 plt.show()
 
 
 # %% Test single camera configuration with prism and rays
 pixels = torch.rand(2, 10)
 height = 1200
-width = 1918
+width = 1920
 pixels = pixels * torch.tensor([width, height])[:, None]
 _, ax, prism, camera = visualize_camera_configuration(pixels=pixels)
 ray_direct = camera.initialize_ray(pixels)
-points = closest_point(prism.ray4, ray_direct)
+#points = closest_point(prism.ray4, ray_direct)
 
 
 # %% Visualize camera configuration
@@ -125,7 +191,7 @@ target_coordinates = target_coordinates[:, test_idx]
 print(f'Finished loading calibration results from {calibration_results_path}')
 ray_direct = camera.initialize_ray(undistorted_real_pixels)
 distance = ray_direct.distance_to_point(target_coordinates)
-
+print(f'Mean distance error: {distance.mean()}')
 
 # %% Visualize 'n_sample' rays traced from pixels (single camera)
 num_samples = 10
@@ -157,7 +223,7 @@ ax.set_aspect('equal', adjustable='datalim')
 ax.set_title('Two cameras with a given relative pose', fontsize=15)
 
 
-# %% Visualize rays from two cameras
+# %% Visualize {num_samples} rays from two cameras
 num_samples = 10
 calibration_results_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism/exp_18/results-non-corroded/'
 calibration_results_file = 'ball_bearing_data.mat'
@@ -189,7 +255,7 @@ ax.set_aspect('equal', adjustable='datalim')
 ax.set_title(f'{num_samples} rays from ball bearing centroid projections on two cameras', fontsize=15)
 
 
-# %%
+# %% Calculate errors for two cameras
 calibration_results_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism/exp_18/results-non-corroded/'
 calibration_results_file = 'ball_bearing_data.mat'
 calibration_results_path = os.path.join(calibration_results_dir, calibration_results_file)
@@ -238,7 +304,42 @@ focal_length_cam_1,
 focal_length_cam_2, 
 R, 
 T, 
-prism_distance)
+prism_distance,
+prism_angles = torch.tensor([0., 0., 0.]))
+
+
+# %% Check if refraction works as intended
+import matplotlib.pyplot as plt
+
+undistorted_real_pixels_cam_0 = torch.tensor(mat['output_data_cam_0_undistorted'], dtype=torch.float32).T - 1
+undistorted_real_pixels_cam_1 = torch.tensor(mat['output_data_cam_1_undistorted'], dtype=torch.float32).T - 1
+camera1 = Camera(principal_point_pixel=principal_point_pixel_cam_0)
+camera2 = Camera(principal_point_pixel=principal_point_pixel_cam_1, focal_length=19.697)
+camera2.update_camera_pose(R, T)
+ray1 = camera1(undistorted_real_pixels_cam_0)
+ray2 = camera2(undistorted_real_pixels_cam_1)
+ang11, ang12, ang13 = calculate_angle_of_incidence(ray1, arena.prism)
+ang21, ang22, ang23 = calculate_angle_of_incidence(ray2, arena.prism)
+fig, ax = plot_two_camera_figures(ang12, ang22)
+ax[0].set_xlabel('Angle of incidence ($^o$)')
+ax[1].set_xlabel('Angle of reflection ($^o$)')
+fig.suptitle('Angle of reflection vs Angle of incidence', fontsize=25)
+
+fig.savefig(f'{test_output_folder}/reflection.png')
+plot_two_camera_figures(ang11[1:,...], ang21[1:,...])
+ax[0].set_xlabel('Angle of refraction ($^o$)')
+ax[1].set_xlabel("Snell's law estimate ($^o$)")
+fig.suptitle('Angle of refraction vs Snells Law (First Plane)', fontsize=25)
+fig.savefig(f'{test_output_folder}/refraction_plane1.png')
+
+plot_two_camera_figures(ang13[1:,...], ang23[1:,...])
+fig.suptitle('Angle of refraction vs Snells Law (Third Plane)', fontsize=25)
+ax[0].set_xlabel('Angle of refraction ($^o$)')
+ax[1].set_xlabel("Snell's law estimate ($^o$)")
+fig.savefig(f'{test_output_folder}/refraction_plane3.png')
+
+
+# ## Check if reflection works as intended
 
 
 # %%
