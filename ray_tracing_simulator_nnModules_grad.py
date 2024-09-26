@@ -11,8 +11,8 @@ import torch
 import torch.nn as nn
 import os
 import scipy.io as sio
-#mpl.use('TkAgg') # Use this if working on the PC
-mpl.use('QtAgg') # Use this if working remotely with NoMachine
+mpl.use('TkAgg') # Use this if working on the PC
+#mpl.use('QtAgg') # Use this if working remotely with NoMachine
 plt.ion()
 
 pi = torch.tensor(np.pi)
@@ -458,9 +458,12 @@ class Plane(nn.Module):
 class RefractingPlane(Plane, nn.Module):
     def __init__(self, alpha=0., beta=0., gamma=0., center=[0.,0.,0.], 
                  axes=None, refractive_idx_1=1., refractive_idx_2=1.,
-                  a=1., b=1.):
+                  a=1., b=1.):                  
         super(RefractingPlane, self).__init__(axes=axes, center=center, alpha=alpha, beta=beta, gamma=gamma, a=a, b=b)
-
+        """
+        refractive_idx_1 is on the side facing the normal
+        refractive_idx_2 is on the side facing away from the normal
+        """
         #Plane.__init__(self, axes=axes, center=center, alpha=alpha, beta=beta, gamma=gamma, a=a, b=b)
         #nn.Module.__init__(self)
 
@@ -758,8 +761,8 @@ class Prism(nn.Module):
         axes3 = torch.mm(rot_mat, axes3)
         plane3_center = nn.Parameter(plane2.center - plane1.axes[:,1].unsqueeze(-1) * self.prism_size[1] / 2)
         plane3 = RefractingPlane(
-                            refractive_idx_1=self.refractive_index_glass,
-                            refractive_idx_2=self.refractive_index_air,
+                            refractive_idx_1=self.refractive_index_air,
+                            refractive_idx_2=self.refractive_index_glass,
                             axes=axes3,
                             a = self.prism_size[0],
                             b = self.prism_size[1],
