@@ -11,8 +11,8 @@ import torch
 import torch.nn as nn
 import os
 import scipy.io as sio
-mpl.use('TkAgg') # Use this if working on the PC
-#mpl.use('QtAgg') # Use this if working remotely with NoMachine
+#mpl.use('TkAgg') # Use this if working on the PC
+mpl.use('QtAgg') # Use this if working remotely with NoMachine
 plt.ion()
 
 pi = torch.tensor(np.pi)
@@ -148,10 +148,14 @@ class Ray():
         distance = torch.linalg.norm(distance, dim=0)
         return distance
 
-    def visualize(self, fig=None, ax=None):
+    def visualize(self, fig=None, ax=None, color_labels=None):
         """
         Visualize the ray.
         """
+        num_rays = self.t.shape[0]
+        if color_labels:
+            colors = plt.get_cmap('jet')(np.linspace(0, 1.0, num_rays))
+
         t = self.t.detach().numpy()
         if fig is None:
             fig = plt.figure()
@@ -163,12 +167,16 @@ class Ray():
                    marker='o', 
                    color='black')
         #NOTE: t has a shape of (N,1) where N is the number of rays
-        for ray_id in range(self.t.shape[0]):
+        for ray_id in range(num_rays):
+            if color_labels:
+                ray_color = colors[ray_id]
+            else:
+                ray_color = 'black'
             ax.plot([self.origin[0, ray_id].detach().numpy(),
              (self.origin[0, ray_id] + t[ray_id, 0] * self.direction[0, ray_id]).detach().numpy()],
              [self.origin[1, ray_id].detach().numpy(), (self.origin[1, ray_id] + t[ray_id, 0] * self.direction[1, ray_id]).detach().numpy()],
              [self.origin[2, ray_id].detach().numpy(), (self.origin[2, ray_id] + t[ray_id, 0] * self.direction[2, ray_id]).detach().numpy()],
-             color='black', linewidth=0.2)
+             color=ray_color, linewidth=0.4)
 
         ax.quiver(self.origin[0].detach().numpy(), 
                   self.origin[1].detach().numpy(), 
@@ -176,13 +184,12 @@ class Ray():
                   t * self.direction[0].detach().numpy(), 
                   t * self.direction[1].detach().numpy(), 
                   t * self.direction[2].detach().numpy(),
-                  length=0.2, linewidth=0.1, color='black', normalize=True)
+                  length=0.05, linewidth=0.1, color='black', normalize=True)
         ax.set_xlabel('X (mm)')
         ax.set_ylabel('Y (mm)')
         ax.set_zlabel('Z (mm)')
         plt.show()
         return fig, ax
-
 
 
 
@@ -230,10 +237,11 @@ class Plane(nn.Module):
             rot_mat =  get_rot_mat(alpha, beta, gamma) # Rotation matrix
             axes = torch.mm(
                 rot_mat,
-                torch.tensor([[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]], dtype=torch.float32)
+                torch.tensor([[0., 0., -1.], [1., 0., 0.], [0., -1., 0.]], dtype=torch.float32)
                 )
                         
         self.axes = axes
+        print(self.axes)
                      
 
     @property
@@ -433,16 +441,22 @@ class Plane(nn.Module):
         if fig is None:
             fig = plt.figure()
             ax = fig.add_subplot(111, projection='3d')
+
+        # Plot random points on the plane surface
         ax.scatter(sampled_points[0].detach().numpy(),
                     sampled_points[1].detach().numpy(), 
                     sampled_points[2].detach().numpy(),
                     c=color,
                     s=1,
                     alpha=0.25)
+
+        # Plot sides of the plane
         ax.plot(s1[0].detach().numpy(), s1[1].detach().numpy(), s1[2].detach().numpy(), c='black')
         ax.plot(s2[0].detach().numpy(), s2[1].detach().numpy(), s2[2].detach().numpy(), c='black')
         ax.plot(s3[0].detach().numpy(), s3[1].detach().numpy(), s3[2].detach().numpy(), c='black')
         ax.plot(s4[0].detach().numpy(), s4[1].detach().numpy(), s4[2].detach().numpy(), c='black')
+        
+        # Plot normal to the plane through the center
         ax.plot(normal_line[0].detach().numpy(),
                 normal_line[1].detach().numpy(), 
                 normal_line[2].detach().numpy(), 
@@ -450,7 +464,27 @@ class Plane(nn.Module):
         ax.set_xlabel('X (mm)')
         ax.set_ylabel('Y (mm)')
         ax.set_zlabel('Z (mm)')
-        #plt.show()
+        
+        # Plot plane axes with the center as the origin
+        for axis_id in range(3):
+            if axis_id == 0:
+                width = 3
+                color='black'
+            else:
+                width = 1
+                if axis_id == 1:
+                    color='blue'
+                else: 
+                    color='green'
+            axis_tip = self.center + self.axes[:,axis_id].unsqueeze(-1) * (self.a + self.b) / 4
+            axis_tip = axis_tip 
+            ax.plot([self.center[0].detach().numpy(), axis_tip[0].detach().numpy()],
+                    [self.center[1].detach().numpy(), axis_tip[1].detach().numpy()],
+                    [self.center[2].detach().numpy(), axis_tip[2].detach().numpy()],
+                    linewidth=width,
+                    color=color,
+                    )
+
         return fig, ax
 
 # %% Clas RefractingPlane
@@ -496,7 +530,6 @@ class RefractingPlane(Plane, nn.Module):
         
         refractive_idx_1 = self.refractive_idx_1
         refractive_idx_2 = self.refractive_idx_2
-        
         
         #incoming_ray_vertical = mat1[0].apply(ray.direction)
         #r2 = np.arctan2(incoming_ray_vertical[1], incoming_ray_vertical[0])
@@ -574,7 +607,6 @@ class Camera(Plane, nn.Module):
                  principal_point_pixel=None):        
 
         super(Camera, self).__init__(axes=axes, center=[0.,0.,0], alpha=alpha, beta=beta, gamma=gamma, a=height, b=width)
-        print(self.axes)
         print(self.alpha, alpha, self.beta, beta, self.gamma, gamma)
         if principal_point_pixel is None:
             principal_point_pixel = torch.tensor([width/pixel_size/2, height/pixel_size/2.], dtype=torch.float32)[:, None]
@@ -651,7 +683,7 @@ class Camera(Plane, nn.Module):
 
 
 
-def visualize_camera_configuration(camera=None, prism=None, pixels=None, ax=None, fig=None):
+def visualize_camera_configuration(camera=None, prism=None, pixels=None, ax=None, fig=None, color_labels=None):
     """
     Visualize the camera configuration.
     """
@@ -670,7 +702,7 @@ def visualize_camera_configuration(camera=None, prism=None, pixels=None, ax=None
     ray = camera.initialize_ray(pixels)
     prism(ray)
     fig, ax = camera.visualize(fig=fig, ax=ax)
-    fig, ax = prism.visualize_prism_and_ray(ray, fig=fig, ax=ax)
+    fig, ax = prism.visualize_prism_and_ray(ray, fig=fig, ax=ax, color_labels=color_labels)
     ax.scatter(camera.aperture[0].detach().numpy(), 
                camera.aperture[1].detach().numpy(), 
                camera.aperture[2].detach().numpy(), 
@@ -728,7 +760,7 @@ class Prism(nn.Module):
         prism_alpha, prism_beta, prism_gamma = prism_angles
         rot_mat = get_rot_mat(prism_alpha, prism_beta, prism_gamma)
         axes1 = torch.mm(rot_mat, 
-                            torch.tensor([[0.,0.,-1.], [0.,1.,0.], [0.,-1.,0.]], dtype=torch.float32).t()
+                            torch.tensor([[0.,0.,-1.], [1.,0.,0.], [0.,-1.,0.]], dtype=torch.float32).t()
                             )
         #print(axes1.grad_fn.next_functions)
         plane1 = RefractingPlane(
@@ -742,24 +774,24 @@ class Prism(nn.Module):
        
         rot_mat_135 = get_rot_mat(3 * pi / 4, 0., 0.)
         axes_135 = torch.mm(rot_mat_135, 
-                            torch.tensor([[0.,0.,-1.], [0.,1.,0.], [0.,-1.,0.]], dtype=torch.float32).t()
+                            torch.tensor([[0.,0.,-1.], [1.,0.,0.], [0.,-1.,0.]], dtype=torch.float32).t()
                             )
         
         axes2 = torch.mm(rot_mat, axes_135)
         plane2_center = nn.Parameter(plane1.center - plane1.axes[:,0].unsqueeze(-1) * self.prism_size[0] / 2)
         plane2 = ReflectingPlane(
                             axes=axes2,
-                            a=self.prism_size[0] * torch.sqrt(torch.tensor(2.)),
-                            b=self.prism_size[1],
+                            a=self.prism_size[0],
+                            b=self.prism_size[1] * torch.sqrt(torch.tensor(2.)),
                             center=plane2_center,
                             )
         
         rot_90 = get_rot_mat(-pi / 2, 0., 0.)
         axes3 = torch.mm(rot_90,
-                            torch.tensor([[0.,0.,-1.], [0.,1.,0.], [0.,-1.,0.]], dtype=torch.float32).t()
+                            torch.tensor([[0.,0.,-1.], [1.,0.,0.], [0.,-1.,0.]], dtype=torch.float32).t()
                             )
         axes3 = torch.mm(rot_mat, axes3)
-        plane3_center = nn.Parameter(plane2.center - plane1.axes[:,1].unsqueeze(-1) * self.prism_size[1] / 2)
+        plane3_center = nn.Parameter(plane2.center + plane1.axes[:,2].unsqueeze(-1) * self.prism_size[1] / 2)
         plane3 = RefractingPlane(
                             refractive_idx_1=self.refractive_index_air,
                             refractive_idx_2=self.refractive_index_glass,
@@ -802,7 +834,6 @@ class Prism(nn.Module):
         ray2 = plane2(ray1)
         ray3 = plane3(ray2)
         return ray1, ray2, ray3
-
     
     def visualize_prism(self, fig=None, ax=None):
         if fig is None:
@@ -816,7 +847,7 @@ class Prism(nn.Module):
         fig, ax = plane3.visualize(fig, ax, color=[0.5, 0.5, 0.5])
         return fig, ax
     
-    def visualize_prism_and_ray(self, incident_ray, fig=None, ax=None):
+    def visualize_prism_and_ray(self, incident_ray, fig=None, ax=None, color_labels=None):
         if fig is None:
             fig = plt.figure(figsize=(10,10))
         if ax is None:
@@ -829,10 +860,10 @@ class Prism(nn.Module):
         fig, ax = plane1.visualize(fig, ax, color=[0.5, 0.5, 0.5])
         fig, ax = plane2.visualize(fig, ax, color=[[0.5, 0.5, 0.5]])
         fig, ax = plane3.visualize(fig, ax, color=[0.5, 0.5, 0.5])
-        fig, ax = incident_ray.visualize(fig, ax)
-        fig, ax = ray2.visualize(fig, ax)
-        fig, ax = ray3.visualize(fig, ax)
-        fig, ax = ray4.visualize(fig, ax)
+        fig, ax = incident_ray.visualize(fig, ax, color_labels=color_labels)
+        fig, ax = ray2.visualize(fig, ax, color_labels=color_labels)
+        fig, ax = ray3.visualize(fig, ax, color_labels=color_labels)
+        fig, ax = ray4.visualize(fig, ax, color_labels=color_labels)
         return fig, ax
     
 def closest_point(ray1, ray2):
@@ -908,22 +939,19 @@ if __name__=="__main__":
                       refractive_index_glass=n_glass, 
                       refractive_index_air=n_air)
         
-        npts = 20
+        npts = 25
         origin_point = torch.zeros(3, npts)
         target_point = torch.zeros(3, npts)
 
         origin_point[1,:] = torch.linspace(-0.35, 0.35, npts)
         origin_point[2,:] = -0.3
         target_point[1,:] = 0.075
-
-
-        #origin_point=torch.tensor([[0., -0.42, -0.27]]).T
-        #target_point=torch.tensor([[0.,-0.17,0.]]).T
         ray = Ray(origin=origin_point, target=target_point)
         _, _, emergent_ray = prism(ray) 
-        fig, ax = prism.visualize_prism_and_ray(ray)
+        fig, ax = prism.visualize_prism_and_ray(ray, color_labels=True)
         ax.set_aspect('equal', adjustable='datalim')
         plt.show()
+
     else:
         calibration_results_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism/exp_18/results-non-corroded/'
         calibration_results_file = 'ball_bearing_data.mat'
