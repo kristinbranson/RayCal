@@ -241,9 +241,7 @@ class Plane(nn.Module):
                 )
                         
         self.axes = axes
-        print(self.axes)
                      
-
     @property
     def sides(self):
         return self.angles_to_sides(self.alpha, self.beta, self.gamma)
