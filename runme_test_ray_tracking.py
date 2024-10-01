@@ -15,7 +15,7 @@
 # ---
 
 # %% Imports
-from ray_tracing_simulator_nnModules_grad import Prism, Ray, Plane, ReflectingPlane, RefractingPlane, Camera, Arena, visualize_camera_configuration
+from ray_tracing_simulator_nnModules_grad import Prism, Ray, Plane, ReflectingPlane, RefractingPlane, Camera, Arena, visualize_camera_configuration, closest_point
 import matplotlib.pyplot as plt
 import numpy as np  
 import torch
@@ -131,11 +131,11 @@ ax.set_aspect('equal', adjustable='datalim')
 # Testing a single ray refracting and reflecting through a prism
 n_glass = 1.55
 n_air = 1.
-prism_alpha = 0.
-prism_beta = 0.
-prism_gamma = 0.
+prism_alpha = -2.972
+prism_beta = 1.4760
+prism_gamma = 2.0186
 prism_center = np.array([0.,0.,0.])[:, None]
-prism = Prism(prism_size=[1.,1.,1.], prism_angles=[prism_alpha, prism_beta, prism_gamma], 
+prism = Prism(prism_size=[20.,20.,20.], prism_angles=[prism_alpha, prism_beta, prism_gamma], 
                 prism_center=prism_center, refractive_index_glass=n_glass, 
                 refractive_index_air=n_air)
 origin_point=torch.tensor([0.,0.6,-0.25])[:,None]
@@ -149,11 +149,11 @@ plt.show()
 
 # %% Test single camera configuration with prism and rays
 pixels = torch.rand(2, 10)
-height = 1200
-width = 1920
+height = 1024
+width = 1280
 pixels = pixels * torch.tensor([width, height])[:, None]
-_, ax, prism, camera = visualize_camera_configuration(pixels=pixels)
-ray_direct = camera.initialize_ray(pixels)
+_, ax, prism, camera = visualize_camera_configuration(pixels=pixels, color_labels=True)
+#ray_direct = camera(pixels)
 #points = closest_point(prism.ray4, ray_direct)
 
 
@@ -181,22 +181,23 @@ calibration_results_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/pr
 calibration_results_file = 'ball_bearing_data.mat'
 calibration_results_path = os.path.join(calibration_results_dir, calibration_results_file)
 mat = sio.loadmat(calibration_results_path)
-undistorted_real_pixels = torch.tensor(mat['output_data_cam_0_undistorted'], dtype=torch.float32).T
+undistorted_real_pixels = torch.tensor(mat['output_data_cam_0_undistorted'], dtype=torch.float32).T - 1
 target_coordinates = torch.tensor(mat['input_data'], dtype=torch.float32).T
 test_idx = torch.randperm(undistorted_real_pixels.shape[1])
-principal_point_pixel = [638.040, 492.499] # This comes from the calibration results
+principal_point_pixel = [638.040 - 1, 492.499 - 1] # This comes from the calibration results
 camera = Camera(principal_point_pixel=principal_point_pixel)
-undistorted_real_pixels = undistorted_real_pixels[:, test_idx]
+undistorted_real_pixels = undistorted_real_pixels[:, test_idx] 
 target_coordinates = target_coordinates[:, test_idx]
 print(f'Finished loading calibration results from {calibration_results_path}')
 ray_direct = camera.initialize_ray(undistorted_real_pixels)
 distance = ray_direct.distance_to_point(target_coordinates)
 print(f'Mean distance error: {distance.mean()}')
 
+
 # %% Visualize 'n_sample' rays traced from pixels (single camera)
 num_samples = 10
 test_idx = torch.randperm(undistorted_real_pixels.shape[1])[:num_samples]
-principal_point_pixel=[638.040, 492.499]
+principal_point_pixel=[638.040 - 1, 492.499 - 1]
 camera = Camera(principal_point_pixel=principal_point_pixel)
 undistorted_real_pixels = undistorted_real_pixels[:, test_idx]
 target_coordinates = target_coordinates[:, test_idx]
@@ -207,6 +208,7 @@ ray_direct.t *= 160
 ray_direct.visualize(fig=fig, ax=ax)
 ax.scatter(target_coordinates[0], target_coordinates[1], target_coordinates[2], c='r')
 ax.set_title(f'{num_samples} rays traced from ball bearing centroid projections', fontsize=15)
+ax.set_aspect('equal', adjustable='datalim') 
 
 
 # %%  Visualize two cameras, given the rotation and translation matrix of one with respect to the other
@@ -214,8 +216,8 @@ R = torch.tensor([[0.819301743677432, 0.0073199538315673, -0.573315856298274],
                    [-1.41589415524092e-05, 0.999918760232094, 0.0127464793349662], 
                    [0.573362583891418, -0.0104350951991858, 0.819235287436729]]).T
 T = torch.tensor([72.8566307938209, -0.980908710814855, 22.7386226749512])[:, None]
-camera1 = Camera(principal_point_pixel=[638.040, 492.499])
-camera2 = Camera(principal_point_pixel=[659.37, 521.507], focal_length=19.69)
+camera1 = Camera(principal_point_pixel=[638.040 - 1, 492.499 - 1])
+camera2 = Camera(principal_point_pixel=[659.37 - 1, 521.507 - 1], focal_length_pixels=5709.3)
 camera2.update_camera_pose(R, T)
 fig, ax = camera1.visualize()
 camera2.visualize(fig=fig, ax=ax)
@@ -229,14 +231,14 @@ calibration_results_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/pr
 calibration_results_file = 'ball_bearing_data.mat'
 calibration_results_path = os.path.join(calibration_results_dir, calibration_results_file)
 mat = sio.loadmat(calibration_results_path)
-undistorted_real_pixels_cam_0 = torch.tensor(mat['output_data_cam_0_undistorted'], dtype=torch.float32).T
-undistorted_real_pixels_cam_1 = torch.tensor(mat['output_data_cam_1_undistorted'], dtype=torch.float32).T
+undistorted_real_pixels_cam_0 = torch.tensor(mat['output_data_cam_0_undistorted'], dtype=torch.float32).T - 1
+undistorted_real_pixels_cam_1 = torch.tensor(mat['output_data_cam_1_undistorted'], dtype=torch.float32).T - 1
 target_coordinates = torch.tensor(mat['input_data'], dtype=torch.float32).T
 test_idx = torch.randperm(undistorted_real_pixels_cam_0.shape[1])[:num_samples]
-principal_point_pixel_cam_0 = [638.040, 492.499] # This comes from the calibration results
-principal_point_pixel_cam_1 = [659.37, 521.507] # This comes from the calibration results
+principal_point_pixel_cam_0 = [638.040 - 1, 492.499 - 1] # This comes from the calibration results
+principal_point_pixel_cam_1 = [659.37 - 1, 521.507 - 1] # This comes from the calibration results
 camera1 = Camera(principal_point_pixel=principal_point_pixel_cam_0)
-camera2 = Camera(principal_point_pixel=principal_point_pixel_cam_1, focal_length=19.69)
+camera2 = Camera(principal_point_pixel=principal_point_pixel_cam_1, focal_length_pixels=5709.3)
 camera2.update_camera_pose(R, T)
 undistorted_real_pixels_cam_0 = undistorted_real_pixels_cam_0[:, test_idx]
 undistorted_real_pixels_cam_1 = undistorted_real_pixels_cam_1[:, test_idx]
@@ -266,8 +268,11 @@ target_coordinates = torch.tensor(mat['input_data'], dtype=torch.float32).T
 test_idx = torch.randperm(undistorted_real_pixels_cam_0.shape[1])
 principal_point_pixel_cam_0 = [638.040 - 1, 492.499 - 1] # This comes from the calibration results
 principal_point_pixel_cam_1 = [659.3778 - 1, 521.5078 - 1] # This comes from the calibration results
-camera1 = Camera(principal_point_pixel=principal_point_pixel_cam_0)
-camera2 = Camera(principal_point_pixel=principal_point_pixel_cam_1, focal_length=19.697)
+camera1 = Camera(principal_point_pixel=principal_point_pixel_cam_0,
+                 )
+camera2 = Camera(principal_point_pixel=principal_point_pixel_cam_1, 
+                 focal_length_pixels=5709.3,
+                 )
 camera2.update_camera_pose(R, T)
 undistorted_real_pixels_cam_0 = undistorted_real_pixels_cam_0[:, test_idx]
 undistorted_real_pixels_cam_1 = undistorted_real_pixels_cam_1[:, test_idx]
@@ -294,8 +299,8 @@ R = torch.tensor([[0.819301743677432, 0.0073199538315673, -0.573315856298274],
                    [0.573362583891418, -0.0104350951991858, 0.819235287436729]]).T
 T = torch.tensor([72.8566307938209, -0.980908710814855, 22.7386226749512])[:, None]
 
-focal_length_cam_1 = 19.65
-focal_length_cam_2 = 19.69
+focal_length_cam_1 = 5696.3
+focal_length_cam_2 = 5709.3
 
 prism_distance = 130.
 arena = Arena(principal_point_pixel_cam_0, 
@@ -308,13 +313,13 @@ prism_distance,
 prism_angles = torch.tensor([0., 0., 0.]))
 
 
-# %% Check if refraction works as intended
+# %% Check if refraction and reflection works as intended
 import matplotlib.pyplot as plt
 
 undistorted_real_pixels_cam_0 = torch.tensor(mat['output_data_cam_0_undistorted'], dtype=torch.float32).T - 1
 undistorted_real_pixels_cam_1 = torch.tensor(mat['output_data_cam_1_undistorted'], dtype=torch.float32).T - 1
 camera1 = Camera(principal_point_pixel=principal_point_pixel_cam_0)
-camera2 = Camera(principal_point_pixel=principal_point_pixel_cam_1, focal_length=19.697)
+camera2 = Camera(principal_point_pixel=principal_point_pixel_cam_1, focal_length_pixels=5709.3)
 camera2.update_camera_pose(R, T)
 ray1 = camera1(undistorted_real_pixels_cam_0)
 ray2 = camera2(undistorted_real_pixels_cam_1)
@@ -322,20 +327,27 @@ ang11, ang12, ang13 = calculate_angle_of_incidence(ray1, arena.prism)
 ang21, ang22, ang23 = calculate_angle_of_incidence(ray2, arena.prism)
 fig, ax = plot_two_camera_figures(ang12, ang22)
 ax[0].set_xlabel('Angle of incidence ($^o$)')
-ax[1].set_xlabel('Angle of reflection ($^o$)')
+ax[1].set_xlabel('Angle of incidence ($^o$)')
+ax[1].set_ylabel("Angle of reflection ($^o$)")
+ax[1].set_ylabel("Angle of reflection ($^o$)")
 fig.suptitle('Angle of reflection vs Angle of incidence', fontsize=25)
-
 fig.savefig(f'{test_output_folder}/reflection.png')
-plot_two_camera_figures(ang11[1:,...], ang21[1:,...])
-ax[0].set_xlabel('Angle of refraction ($^o$)')
+
+fig, ax = plot_two_camera_figures(ang11[1:,...], ang21[1:,...])
+ax[0].set_xlabel("Snell's law estimate ($^o$)")
 ax[1].set_xlabel("Snell's law estimate ($^o$)")
+ax[0].set_ylabel("Angle of refraction")
+ax[1].set_ylabel("Angle of refraction")
 fig.suptitle('Angle of refraction vs Snells Law (First Plane)', fontsize=25)
 fig.savefig(f'{test_output_folder}/refraction_plane1.png')
 
-plot_two_camera_figures(ang13[1:,...], ang23[1:,...])
+fig, ax = plot_two_camera_figures(ang13[1:,...], ang23[1:,...])
 fig.suptitle('Angle of refraction vs Snells Law (Third Plane)', fontsize=25)
-ax[0].set_xlabel('Angle of refraction ($^o$)')
-ax[1].set_xlabel("Snell's law estimate ($^o$)")
+ax[0].set_xlabel("Snell's law estimate ($^o$)")
+ax[0].set_xlabel("Snell's law estimate ($^o$)")
+ax[1].set_ylabel("Angle of refraction ($^o$)")
+ax[1].set_ylabel("Angle of refraction ($^o$)")
+fig.suptitle('Angle of refraction vs Snells Law (First Plane)', fontsize=25)
 fig.savefig(f'{test_output_folder}/refraction_plane3.png')
 
 

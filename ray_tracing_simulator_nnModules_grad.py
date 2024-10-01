@@ -11,8 +11,8 @@ import torch
 import torch.nn as nn
 import os
 import scipy.io as sio
-#mpl.use('TkAgg') # Use this if working on the PC
-mpl.use('QtAgg') # Use this if working remotely with NoMachine
+mpl.use('TkAgg') # Use this if working on the PC
+#mpl.use('QtAgg') # Use this if working remotely with NoMachine
 plt.ion()
 
 pi = torch.tensor(np.pi)
@@ -237,11 +237,11 @@ class Plane(nn.Module):
             rot_mat =  get_rot_mat(alpha, beta, gamma) # Rotation matrix
             axes = torch.mm(
                 rot_mat,
-                torch.tensor([[0., 0., -1.], [1., 0., 0.], [0., -1., 0.]], dtype=torch.float32)
+                torch.tensor([[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]], dtype=torch.float32)
                 )
-                        
         self.axes = axes
-                     
+
+
     @property
     def sides(self):
         return self.angles_to_sides(self.alpha, self.beta, self.gamma)
@@ -289,7 +289,7 @@ class Plane(nn.Module):
             rot_mat =  get_rot_mat(self.alpha, self.beta, self.gamma)
         horizontal_direction = torch.mm(rot_mat, original_horizontal_direction)
         """
-        return -self.axes[:,2].unsqueeze(-1)
+        return self.axes[:,1].unsqueeze(-1)
 
 
     def get_vertical_direction(self, original_vertical_direction=None, rot_mat=None):
@@ -307,7 +307,7 @@ class Plane(nn.Module):
             rot_mat =  get_rot_mat(self.alpha, self.beta, self.gamma)
         vertical_direction = torch.mm(rot_mat, original_vertical_direction)
         """
-        return self.axes[:,1].unsqueeze(-1)
+        return self.axes[:,2].unsqueeze(-1)
 
 
     def rotate_plane(self, alpha_rot=0., beta_rot=0., gamma_rot=0., rot_mat=None):
@@ -595,17 +595,18 @@ class TestPlane(Plane, nn.Module):
         Plane.__init__(self, normal=normal, center=center, alpha=alpha, beta=beta, gamma=gamma, a=a, b=b)
         nn.Module.__init__(self)
         
-        
 
 #%% Camera  class
 class Camera(Plane, nn.Module):
     # NOTE: The plane defines the camera sensor, not the aperture plane
-    def __init__(self, alpha=0., beta=-pi.clone()/2, gamma=0., aperture=[0.,0.,0.], 
-                 axes=None, height=4.14, width=6.624, focal_length=19.65, pixel_size=3.45e-3, 
-                 principal_point_pixel=None):        
-
-        super(Camera, self).__init__(axes=axes, center=[0.,0.,0], alpha=alpha, beta=beta, gamma=gamma, a=height, b=width)
-        print(self.alpha, alpha, self.beta, beta, self.gamma, gamma)
+    def __init__(self, alpha=0., beta=0., gamma=0., aperture=[0.,0.,0.], 
+                 axes=None, height=4.9152, width=6.144, focal_length_pixels=5696.3, pixel_size=4.8e-3, 
+                 principal_point_pixel=None):
+        axes=torch.tensor([
+                [0., 1., 0.],
+                [0., 0., 1.],
+                [1., 0., 0.]])
+        super(Camera, self).__init__(axes=axes, center=[0.,0.,0], alpha=alpha, beta=beta, gamma=gamma, a=width, b=height)
         if principal_point_pixel is None:
             principal_point_pixel = torch.tensor([width/pixel_size/2, height/pixel_size/2.], dtype=torch.float32)[:, None]
 
@@ -619,17 +620,20 @@ class Camera(Plane, nn.Module):
             if len(principal_point_pixel.shape) == 1:
                 principal_point_pixel = principal_point_pixel.reshape((2, 1))
 
+        
         self.aperture = aperture
-        self.focal_length = focal_length
+        self.focal_length = focal_length_pixels * pixel_size
         self.pixel_size = pixel_size
+        self.n_horizontal_pixels = width / self.pixel_size
+        self.n_vertical_pixels = height / self.pixel_size
+        self.principal_point = self.get_principal_point_from_aperture()
+        #self.principal_point = torch.tensor([0.,0.,-self.focal_length], dtype=torch.float32)[:,None] 
         self.principal_point_pixel = principal_point_pixel
-        principal_point = self.get_principal_point_from_aperture()
-        self.move_plane(displacement=principal_point - aperture)
+        delta_principal_point = torch.tensor([self.a/2 - self.pixel_size*principal_point_pixel[0], self.b/2 - self.pixel_size*principal_point_pixel[1]]) 
+        self.center = ((self.principal_point[0,:] + delta_principal_point[0]) * self.horizontal_direction + (self.principal_point[1,:] + delta_principal_point[1]) * self.vertical_direction) + self.principal_point
         
-        
-        #NOTE: For the camera, horizontal plane direction is the self.vertical_direction 
-        #self.horizontal_direction = self.get_horizontal_direction()
-        #self.vertical_direction = self.get_vertical_direction()
+        #self.move_plane(displacement=torch.tensor([self.a/2, self.b/2, 0.])[:,None] - delta_principal_point)
+                
 
     def forward(self, pixel):
         if not isinstance(pixel, torch.Tensor):
@@ -662,24 +666,28 @@ class Camera(Plane, nn.Module):
         Convert pixel coordinates to world coordinates.
         pixels: (N,2) array of pixel coordinates
         """
-        digital_pixels = digital_pixels - self.principal_point_pixel #NOTE: Center is the principal point
-        digital_pixels = digital_pixels * self.pixel_size
+        d_digital_pixels = digital_pixels - self.principal_point_pixel 
+        d_world_pixels = d_digital_pixels * self.pixel_size
         #digital_pixels[0,:] = -digital_pixels[0,:]
         #digital_pixels[1,:] = -digital_pixels[1,:] # Flip the y-axis
         # NOTE: For the camera, horizontal plane direction is the self.horizontal_direction
-        pixels = digital_pixels[0,:] * (-1) * self.horizontal_direction + digital_pixels[1,:] * (-1) * self.vertical_direction
-        pixels = pixels + self.center
+        pixels = d_world_pixels[0,:] * (-1) * self.horizontal_direction + d_world_pixels[1,:] * (-1) * self.vertical_direction + self.principal_point
         return pixels
     
     def update_camera_pose(self, R, T):
         """
         Update the camera pose, given the camera extrinsics as Rotation Matrix (R) and Translation vector (t)
         """
+        self.move_plane(displacement=self.aperture - self.center) # Move center to aperture
         self.move_plane(displacement=-T.clone())
-        self.rotate_plane(rot_mat=R.clone())        
-        self.aperture = self.center + self.focal_length * self.axes[:,0].unsqueeze(-1)
-
-
+        self.rotate_plane(rot_mat=R.clone()) 
+        self.aperture = self.center
+        self.center = self.aperture - self.focal_length * self.axes[:,0].unsqueeze(-1)
+        self.center = self.center + torch.cat((
+            self.principal_point_pixel[:,0] * self.pixel_size - torch.tensor([self.a/2, self.b/2]), torch.tensor([0.])))[:, None]
+        self.principal_point = self.get_principal_point_from_aperture()
+        #self.aperture = self.center + self.focal_length * self.axes[:,0].unsqueeze(-1)
+        
 
 def visualize_camera_configuration(camera=None, prism=None, pixels=None, ax=None, fig=None, color_labels=None):
     """
@@ -688,17 +696,17 @@ def visualize_camera_configuration(camera=None, prism=None, pixels=None, ax=None
     if camera is None:
         camera = Camera()
     
-    prism_distance = 130.
+    prism_distance = 120.
 
     if prism is None:
         prism_center = camera.aperture + camera.axes[:,0].unsqueeze(-1) * prism_distance
-        prism = Prism(prism_size=[30.,30.,30.], prism_center=prism_center)
+        prism = Prism(prism_size=[20., 20., 20.], prism_center=prism_center, prism_angles=[pi,0.,0.])
             
     if pixels is None:
         pixels = torch.tensor([1,1]).unsqueeze(-1)
     
     ray = camera.initialize_ray(pixels)
-    prism(ray)
+    #prism(ray)
     fig, ax = camera.visualize(fig=fig, ax=ax)
     fig, ax = prism.visualize_prism_and_ray(ray, fig=fig, ax=ax, color_labels=color_labels)
     ax.scatter(camera.aperture[0].detach().numpy(), 
@@ -758,8 +766,9 @@ class Prism(nn.Module):
         prism_alpha, prism_beta, prism_gamma = prism_angles
         rot_mat = get_rot_mat(prism_alpha, prism_beta, prism_gamma)
         axes1 = torch.mm(rot_mat, 
-                            torch.tensor([[0.,0.,-1.], [1.,0.,0.], [0.,-1.,0.]], dtype=torch.float32).t()
+                            torch.tensor([[1.,0.,0.], [0.,1.,0.], [0.,0.,1.]], dtype=torch.float32).t()
                             )
+        
         #print(axes1.grad_fn.next_functions)
         plane1 = RefractingPlane(
                             refractive_idx_1=self.refractive_index_air,
@@ -768,15 +777,16 @@ class Prism(nn.Module):
                             a=self.prism_size[0], 
                             b=self.prism_size[1],
                             center=prism_center,
-                            ) # Plane facing the camera        
+                            ) # Plane facing the camera
        
-        rot_mat_135 = get_rot_mat(3 * pi / 4, 0., 0.)
+        rot_mat_135 = get_rot_mat(0.,3*pi/4,0.)
         axes_135 = torch.mm(rot_mat_135, 
-                            torch.tensor([[0.,0.,-1.], [1.,0.,0.], [0.,-1.,0.]], dtype=torch.float32).t()
+                            torch.tensor([[1.,0.,0.], [0.,1.,0.], [0.,0.,1.]], dtype=torch.float32).t()
                             )
         
         axes2 = torch.mm(rot_mat, axes_135)
-        plane2_center = nn.Parameter(plane1.center - plane1.axes[:,0].unsqueeze(-1) * self.prism_size[0] / 2)
+        #plane2_center = nn.Parameter(plane1.center - plane1.axes[:,0].unsqueeze(-1) * self.prism_size[1] / 2)
+        plane2_center = plane1.center - plane1.axes[:,0].unsqueeze(-1) * self.prism_size[1] / 2
         plane2 = ReflectingPlane(
                             axes=axes2,
                             a=self.prism_size[0],
@@ -784,12 +794,13 @@ class Prism(nn.Module):
                             center=plane2_center,
                             )
         
-        rot_90 = get_rot_mat(-pi / 2, 0., 0.)
+        rot_90 = get_rot_mat(0.,pi/2,0.)
         axes3 = torch.mm(rot_90,
-                            torch.tensor([[0.,0.,-1.], [1.,0.,0.], [0.,-1.,0.]], dtype=torch.float32).t()
+                            torch.tensor([[1.,0.,0.], [0.,1.,0.], [0.,0.,1.]], dtype=torch.float32).t()
                             )
         axes3 = torch.mm(rot_mat, axes3)
-        plane3_center = nn.Parameter(plane2.center + plane1.axes[:,2].unsqueeze(-1) * self.prism_size[1] / 2)
+        #plane3_center = nn.Parameter(plane2.center + plane1.axes[:,2].unsqueeze(-1) * self.prism_size[1] / 2)
+        plane3_center = plane2.center + plane1.axes[:,2].unsqueeze(-1) * self.prism_size[1] / 2        
         plane3 = RefractingPlane(
                             refractive_idx_1=self.refractive_index_air,
                             refractive_idx_2=self.refractive_index_glass,
@@ -892,10 +903,10 @@ class Arena(nn.Module):
         # Camera initialization        
         self.camera1 = Camera(
             principal_point_pixel=principal_point_pixel_cam_0, 
-            focal_length=focal_length_cam_0)
+            focal_length_pixels=focal_length_cam_0)
         self.camera2 = Camera(
             principal_point_pixel=principal_point_pixel_cam_1, 
-            focal_length=focal_length_cam_1)
+            focal_length_pixels=focal_length_cam_1)
         self.camera2.update_camera_pose(R, T)
         
         # Prism initialization

@@ -1,5 +1,5 @@
 # %% Imports
-from ray_tracing_simulator_nnModules_grad import Prism, Ray, Plane, ReflectingPlane, RefractingPlane, Camera, visualize_camera_configuration, closest_point
+from ray_tracing_simulator_nnModules_grad import Prism, Ray, Plane, ReflectingPlane, RefractingPlane, Camera, visualize_camera_configuration, closest_point, rotx
 import matplotlib.pyplot as plt
 import numpy as np  
 import torch
@@ -17,19 +17,20 @@ calibration_results_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/pr
 calibration_results_file = 'ball_bearing_data.mat'
 calibration_results_path = os.path.join(calibration_results_dir, calibration_results_file)
 mat = sio.loadmat(calibration_results_path)
-undistorted_real_pixels_cam_0 = torch.tensor(mat['output_data_cam_02_undistorted'], dtype=torch.float32, requires_grad=True).T - 1
-undistorted_real_pixels_cam_1 = torch.tensor(mat['output_data_cam_13_undistorted'], dtype=torch.float32, requires_grad=True).T - 1
+undistorted_real_pixels_cam_0 = torch.tensor(mat['output_data_cam_02_undistorted'], dtype=torch.float32, requires_grad=True).T 
+undistorted_real_pixels_cam_1 = torch.tensor(mat['output_data_cam_13_undistorted'], dtype=torch.float32, requires_grad=True).T 
 target_coordinates = torch.tensor(mat['input_data'], dtype=torch.float32).T
 
-principal_point_pixel_cam_0 = [638.040 - 1, 492.499 - 1] # This comes from the calibration results
-principal_point_pixel_cam_1 = [659.3778 - 1, 521.5078 - 1]
+principal_point_pixel_cam_0 = [638.040, 492.499] # This comes from the calibration results
+principal_point_pixel_cam_1 = [659.3778, 521.5078]
 
 R = torch.tensor([[0.819301743677432, 0.0073199538315673, -0.573315856298274],
                    [-1.41589415524092e-05, 0.999918760232094, 0.0127464793349662], 
                    [0.573362583891418, -0.0104350951991858, 0.819235287436729]]).T
 T = torch.tensor([72.8566307938209, -0.980908710814855, 22.7386226749512])[:, None]
-focal_length_cam_1 = 19.65
-focal_length_cam_2 = 19.69
+focal_length_cam_1 = 5696.3
+focal_length_cam_2 = 5790.3
+
 
 #%% 
 def freeze_camera_parameters(camera):
@@ -47,6 +48,34 @@ def freeze_individual_planes(prism):
     for param in prism.plane3.parameters():
         param.requires_grad = False
 
+#%% Prism corners third plane
+prism_corners_path = '/groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/prism_corners_third_plane.mat'
+prism_corners = sio.loadmat(prism_corners_path)['worldPoints']
+prism3_axes = torch.zeros(3,3)
+#prism3_axes[:,1] = torch.stack(
+#    (torch.tensor(prism_corners[1,:] - prism_corners[0,:]),
+#     torch.tensor(prism_corners[2,:] - prism_corners[3,:])
+#    )
+#).mean(dim=0)
+prism3_axes[:,1] = torch.stack(
+    (torch.tensor(prism_corners[1,:] - prism_corners[0,:]),
+    )
+).mean(dim=0)
+prism3_axes[:,2] = torch.stack(
+    (torch.tensor(prism_corners[3,:] - prism_corners[0,:]),
+     torch.tensor(prism_corners[2,:] - prism_corners[1,:])
+     )
+).mean(dim=0)
+prism3_axes[:,0] = torch.linalg.cross(prism3_axes[:,1], prism3_axes[:,2])
+prism3_axes = prism3_axes / torch.linalg.norm(prism3_axes, dim=0)
+prism1_axes = torch.mm(rotx(pi/2), prism3_axes)
+
+prism_a = 20.
+prism_b = 20.
+prism3_center = torch.tensor(prism_corners).mean(dim=0)
+prism1_center = prism3_center + prism_b/2 * prism1_axes[:,0] - prism_b/2 * prism1_axes[:,2] 
+plane = Plane(axes=prism1_axes)
+prism_angles = torch.tensor([plane.alpha, plane.beta, plane.gamma])
 
 
 #%% Define Arena class
@@ -58,23 +87,18 @@ class Arena(nn.Module):
     focal_length_cam_1, 
     R, 
     T, 
-    prism_distance,
-    prism_angles):
+    prism_distance=None,
+    prism_angles=None,
+    prism_center=None):
         super(Arena, self).__init__()
         # Camera initialization        
-        camera1_axes = torch.tensor([
-            [0., 0., -1.],
-            [0., 1., 0.],
-            [1., 0., 0.]
-        ])
+        
         self.camera1 = Camera(
             principal_point_pixel=principal_point_pixel_cam_0, 
-            focal_length=focal_length_cam_0, 
-            axes=camera1_axes)
+            focal_length_pixels=focal_length_cam_0)
         self.camera2 = Camera(
             principal_point_pixel=principal_point_pixel_cam_1, 
-            focal_length=focal_length_cam_1,
-            axes=camera1_axes)
+            focal_length_pixels=focal_length_cam_1)
         self.camera2.update_camera_pose(R, T)
         
         # Prism initialization
@@ -82,10 +106,13 @@ class Arena(nn.Module):
 
         refractive_index_glass = torch.tensor(1.5, dtype=torch.float32)
         refractive_index_glass = nn.Parameter(refractive_index_glass, requires_grad=False)
-        prism_center = self.camera1.aperture.clone() + self.camera1.axes[:,0].unsqueeze(-1).clone() * prism_distance.clone()
-        prism_center[0] = -15.
+        if prism_center is None:
+            prism_center = self.camera1.aperture.clone() + self.camera1.axes[:,0].unsqueeze(-1).clone() * prism_distance.clone()
+            prism_center[0] = -5.
+
         prism_center = nn.Parameter(prism_center, requires_grad=True)
-        self.prism = Prism(prism_size=[30.,30.,30.], 
+
+        self.prism = Prism(prism_size=[20.,20.,20.], 
                         prism_center=prism_center, 
                         prism_angles=prism_angles,
                         refractive_index_glass=refractive_index_glass,
@@ -142,20 +169,20 @@ class Arena(nn.Module):
 
 
 #%% Initialize an Arena instance
-prism_angles = [0., 0., 0.]
+#prism_angles = [0., 0., 0.]
 prism_distance = torch.tensor(130.)
 arena = Arena(principal_point_pixel_cam_0, 
 principal_point_pixel_cam_1, 
 focal_length_cam_1, 
-focal_length_cam_2, 
-R, 
+focal_length_cam_2,
+R,
 T, 
-prism_distance,
-prism_angles)
+prism_angles=prism_angles,
+prism_center=prism1_center)
 
 
 # %% Set up the optimizer and criterion
-optimizer = optim.Adam(arena.parameters(), lr=1e-3)
+optimizer = optim.Adam(arena.parameters(), lr=5e-2)
 criterion = torch.nn.MSELoss()
 device = torch.device("cpu")
 arena.to(device)
@@ -166,7 +193,7 @@ def train_two_cams(model, pixels_two_cams):
     output, closest_distance, _, _, _, _ = model(pixels_two_cams)
     ground_truth_loss = criterion(output, target_coordinates) 
     closest_distance_loss = closest_distance.mean()
-    loss = closest_distance_loss + ground_truth_loss
+    loss = 0 * closest_distance_loss + ground_truth_loss
     loss.backward()
     optimizer.step()
     return ground_truth_loss.item(), closest_distance_loss.item()
@@ -186,10 +213,10 @@ pixels = undistorted_real_pixels_cam_0
 
 #%%
 arena.visualize(pixels_two_cams)
+plt.savefig('outputs/initialized_arena.png')
 
 #%%
 train_two_cams(arena, pixels_two_cams)
-#train_one_cam(arena, pixels)
 
 
 # %%
@@ -205,7 +232,11 @@ for epoch in tqdm(range(1000)):
     training_losses.append((gt_loss + dist_loss))
 
 #%%
+plt.figure()
 plt.plot(training_losses)
+plt.savefig('outputs/training_loss.png')
+
 # %%
 arena.visualize(pixels_two_cams)
+plt.savefig('outputs/final_arena.png')
 # %%
