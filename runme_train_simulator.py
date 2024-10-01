@@ -182,7 +182,7 @@ prism_center=prism1_center)
 
 
 # %% Set up the optimizer and criterion
-optimizer = optim.Adam(arena.parameters(), lr=5e-2)
+optimizer = optim.Adam(arena.parameters(), lr=1e-1)
 criterion = torch.nn.MSELoss()
 device = torch.device("cpu")
 arena.to(device)
