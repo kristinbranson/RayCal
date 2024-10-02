@@ -9,8 +9,22 @@ import torch.optim as optim
 import torch.nn as nn
 from tqdm import tqdm
 #from torchsummary import summary
+from torch.utils.data import DataLoader, random_split, Dataset
 pi = torch.tensor(np.pi)
 torch.autograd.set_detect_anomaly(True)
+
+#%%
+class CalibrationDataset(Dataset):
+    def __init__(self, data, labels):
+        # Example data
+        self.data = data.T
+        self.labels = labels.T
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        return self.data[idx], self.labels[idx]
 
 #%% Load camera calibration results
 calibration_results_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism/exp_18/results-non-corroded/'
@@ -187,11 +201,11 @@ criterion = torch.nn.MSELoss()
 device = torch.device("cpu")
 arena.to(device)
 
-def train_two_cams(model, pixels_two_cams):
+def train_two_cams(model, pixels_two_cams_minibatch, target_coordinates_minibatch):
     model.train()
     optimizer.zero_grad()
-    output, closest_distance, _, _, _, _ = model(pixels_two_cams)
-    ground_truth_loss = criterion(output, target_coordinates) 
+    output, closest_distance, _, _, _, _ = model(pixels_two_cams_minibatch)
+    ground_truth_loss = criterion(output, target_coordinates_minibatch) 
     closest_distance_loss = closest_distance.mean()
     loss = 0 * closest_distance_loss + ground_truth_loss
     loss.backward()
@@ -215,19 +229,34 @@ pixels = undistorted_real_pixels_cam_0
 arena.visualize(pixels_two_cams)
 plt.savefig('outputs/initialized_arena.png')
 
+#%% Dataset
+batch_size=256
+
+dataset = CalibrationDataset(pixels_two_cams, target_coordinates)
+train_size = int(0.8 * len(dataset))  # 80% for training
+val_size = len(dataset) - train_size   # Remaining 20% for validation
+
+# Split the dataset
+pixels_two_cams_train, pixels_two_cams_val = random_split(
+    dataset, [train_size, val_size]
+    )
+train_loader = DataLoader(pixels_two_cams_train, batch_size=batch_size, shuffle=True)
+val_loader = DataLoader(pixels_two_cams_val, batch_size=batch_size, shuffle=False)
+
 #%%
-train_two_cams(arena, pixels_two_cams)
+#train_two_cams(arena, pixels_two_cams_train)
 
 
 # %%
 training_losses = []
 for epoch in tqdm(range(1000)):
     with torch.autograd.set_detect_anomaly(True):
-        gt_loss, dist_loss = train_two_cams(arena, pixels_two_cams)
+        for input, label in train_loader:
+            gt_loss, dist_loss = train_two_cams(arena, input, label)
         #dist_loss = train_one_cam(arena, pixels_two_cams)
-    if epoch % 100 == 0:
-        #print(f'Epoch: {epoch},  Distance loss: {dist_loss}')
-        print(f'Epoch: {epoch},  gt_loss : {gt_loss},  dist_loss: {dist_loss}')
+        if epoch % 100 == 0:
+            #print(f'Epoch: {epoch},  Distance loss: {dist_loss}')
+            print(f'Epoch: {epoch},  gt_loss : {gt_loss},  dist_loss: {dist_loss}')
     #training_losses.append(dist_loss.detach().numpy())
     training_losses.append((gt_loss + dist_loss))
 
