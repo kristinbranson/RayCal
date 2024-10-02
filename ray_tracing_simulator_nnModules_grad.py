@@ -465,9 +465,9 @@ class Plane(nn.Module):
                 normal_line[1].detach().numpy(), 
                 normal_line[2].detach().numpy(), 
                 c='black')
-        ax.set_xlabel('X (mm)')
-        ax.set_ylabel('Y (mm)')
-        ax.set_zlabel('Z (mm)')
+        ax.set_xlabel('X (mm)', fontsize=24)
+        ax.set_ylabel('Y (mm)', fontsize=24)
+        ax.set_zlabel('Z (mm)', fontsize=24)
         
         # Plot plane axes with the center as the origin
         for axis_id in range(3):
@@ -711,7 +711,10 @@ def visualize_camera_configuration(camera=None, prism=None, pixels=None, ax=None
                camera.aperture[1].detach().numpy(), 
                camera.aperture[2].detach().numpy(), 
                c='black', s=10)
-    ax.set_aspect('equal', adjustable='datalim')        
+    ax.set_aspect('equal', adjustable='datalim')    
+    ax.set_xlabel('X (mm)', fontsize=24)
+    ax.set_ylabel('Y (mm)', fontsize=24)
+    ax.set_zlabel('Z (mm)', fontsize=24)    
     return fig, ax, prism, camera
 
 
@@ -849,6 +852,9 @@ class Prism(nn.Module):
         fig, ax = plane1.visualize(fig, ax)
         fig, ax = plane2.visualize(fig, ax, color=[[0.5, 0.5, 0.5]])
         fig, ax = plane3.visualize(fig, ax, color=[0.5, 0.5, 0.5])
+        ax.set_xlabel('X (mm)', fontsize=24)
+        ax.set_ylabel('Y (mm)', fontsize=24)
+        ax.set_zlabel('Z (mm)', fontsize=24)
         return fig, ax
     
     def visualize_prism_and_ray(self, incident_ray, fig=None, ax=None, color_labels=None):
@@ -868,6 +874,9 @@ class Prism(nn.Module):
         fig, ax = ray2.visualize(fig, ax, color_labels=color_labels)
         fig, ax = ray3.visualize(fig, ax, color_labels=color_labels)
         fig, ax = ray4.visualize(fig, ax, color_labels=color_labels)
+        ax.set_xlabel('X (mm)', fontsize=24)
+        ax.set_ylabel('Y (mm)', fontsize=24)
+        ax.set_zlabel('Z (mm)', fontsize=24)
         return fig, ax
     
 def closest_point(ray1, ray2):

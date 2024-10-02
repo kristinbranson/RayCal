@@ -187,7 +187,7 @@ class Arena(nn.Module):
 #%% Initialize an Arena instance
 #prism_angles = [0., 0., 0.]
 prism_distance = torch.tensor(130.) # Not used if you're using fiduciary markers for initialization
-arena = Arena(principal_point_pixel_cam_0,
+arena = Arena(principal_point_pixel_cam_0, 
 principal_point_pixel_cam_1, 
 focal_length_cam_1, 
 focal_length_cam_2,
@@ -207,11 +207,9 @@ def train_two_cams(model, train_loader, criterion):
     for epoch in tqdm(range(num_epochs)):        
         gt_loss = 0.
         dist_loss = 0.
-        
         with torch.autograd.set_detect_anomaly(True):
             # Iterate over minibatches
-            for input, label in train_loader:         
-                num_batches = input.shape[0]       
+            for input, label in train_loader:                
                 optimizer.zero_grad()
                 output, closest_distance, _, _, _, _ = model(input.T)
                 ground_truth_loss = criterion(output, label.T)
@@ -223,9 +221,9 @@ def train_two_cams(model, train_loader, criterion):
                 dist_loss += closest_distance_loss.item()
 
         if epoch % 20 == 0:
-                print(f'Epoch: {epoch},  gt_loss : {gt_loss / num_batches},  dist_loss: {dist_loss / num_batches}')
-        gt_loss_array.append(gt_loss / num_batches)
-        closest_distance_loss_array.append(dist_loss / num_batches)
+                print(f'Epoch: {epoch},  gt_loss : {gt_loss / len(train_loader.dataset)},  dist_loss: {dist_loss / len(train_loader.dataset)}')
+        gt_loss_array.append(gt_loss / len(train_loader.dataset))
+        closest_distance_loss_array.append(dist_loss / len(train_loader.dataset))
     return gt_loss_array, closest_distance_loss_array
 
 
