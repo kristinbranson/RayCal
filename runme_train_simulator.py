@@ -252,7 +252,7 @@ training_losses = []
 for epoch in tqdm(range(1000)):
     with torch.autograd.set_detect_anomaly(True):
         for input, label in train_loader:
-            gt_loss, dist_loss = train_two_cams(arena, input, label)
+            gt_loss, dist_loss = train_two_cams(arena, input.T, label.T)
         #dist_loss = train_one_cam(arena, pixels_two_cams)
         if epoch % 100 == 0:
             #print(f'Epoch: {epoch},  Distance loss: {dist_loss}')
