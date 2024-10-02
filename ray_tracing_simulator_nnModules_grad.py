@@ -106,7 +106,6 @@ class Ray():
                         direction = direction.reshape((3, 1))
             self.origin = origin
             self.direction = direction
-
         self.t = torch.ones((self.direction.shape[1], 1), dtype=torch.float32, device=origin.device)
 
     def size(self):
@@ -151,6 +150,10 @@ class Ray():
     def visualize(self, fig=None, ax=None, color_labels=None):
         """
         Visualize the ray.
+        Parameters:
+        - fig (object): Figure object.
+        - ax (object): Axes object.
+        - color_labels (bool): If True, color the rays using a colormap
         """
         num_rays = self.t.shape[0]
         if color_labels:
@@ -192,7 +195,6 @@ class Ray():
         return fig, ax
 
 
-
 # %% Plane class
 class Plane(nn.Module):
     def __init__(self, axes=None, center=None, alpha=0., beta=0., gamma=0., a=1., b=1.):
@@ -207,9 +209,13 @@ class Plane(nn.Module):
         - gamma (float): Angle of the plane with respect to the z-axis.
         - a (float): Width of the plane (for the default plane, along Y-axis).
         - b (float): Height of the plane (for the default plane, along Z-axis).
-        """
-        #super(Plane, self).__init__()
-        
+        - axes ((3,3) tensor): Axes of the plane
+                                Each column represents one axies
+                                The first column is the normal to the plane
+                                The second column is the 'horizontal' direction (plane dimension is a)
+                                The third column is the 'vertical' direction (plane dimension is b)
+
+        """        
 
         if not isinstance(a, torch.Tensor):
             a = torch.tensor(a, dtype=torch.float32)
@@ -496,8 +502,6 @@ class RefractingPlane(Plane, nn.Module):
         refractive_idx_1 is on the side facing the normal
         refractive_idx_2 is on the side facing away from the normal
         """
-        #Plane.__init__(self, axes=axes, center=center, alpha=alpha, beta=beta, gamma=gamma, a=a, b=b)
-        #nn.Module.__init__(self)
 
         if not isinstance(refractive_idx_1, torch.Tensor):
             refractive_idx_1 = torch.tensor(refractive_idx_1, dtype=torch.float32)
@@ -518,6 +522,7 @@ class RefractingPlane(Plane, nn.Module):
         - n2 (float): Refractive index of the second medium
         Returns:
         - refracted_ray (np.array): Refracted ray
+        Total internal reflection is handled by setting the direction of the refracted ray to 0
         """
 
         bad_rays_mask = ~(torch.linalg.vector_norm(ray.direction, dim=0) > 1e-1)
@@ -534,8 +539,6 @@ class RefractingPlane(Plane, nn.Module):
         cosi = torch.mm(ray.direction.T, self.axes[:,0].unsqueeze(-1)).T #angle of incidence
         cosi = torch.clip(cosi, -1., 1.) # floating point errors can lead to cosi being slightly outside [-1, 1]
 
-        #normal_inverter = np.zeros(cosi.shape)
-        #normal_inverter[cosi < 0] = -1
         normal_multiplier = torch.ones(cosi.shape)
             
         normal_multiplier[cosi < 0] = -1
@@ -565,9 +568,7 @@ class ReflectingPlane(Plane, nn.Module):
     def __init__(self, alpha=0., beta=0., gamma=0., 
                 center=[0.,0.,0.], axes=None,
                 a=1., b=1.):
-        super(ReflectingPlane, self).__init__(axes=axes, center=center, alpha=alpha, beta=beta, gamma=gamma, a=a, b=b)
-        #Plane.__init__(self, axes=axes, center=center, alpha=alpha, beta=beta, gamma=gamma, a=a, b=b)                  
-        #nn.Module.__init__(self)        
+        super(ReflectingPlane, self).__init__(axes=axes, center=center, alpha=alpha, beta=beta, gamma=gamma, a=a, b=b) 
     
     def forward(self, ray):
         bad_rays_mask = ~(torch.linalg.vector_norm(ray.direction, dim=0) > 1e-1)
@@ -585,19 +586,21 @@ class ReflectingPlane(Plane, nn.Module):
         reflected_ray_direction = reflected_ray_direction / torch.linalg.vector_norm(reflected_ray_direction, dim=0)
         reflected_ray_direction[:, bad_rays_mask[0]] = 0. * reflected_ray_direction[:, bad_rays_mask[0]]
         reflected_ray = Ray(origin=intersection, direction=reflected_ray_direction)
-        return reflected_ray
-        
-
-
-# %%
-class TestPlane(Plane, nn.Module):
-    def __init__(self, normal=None, center=[0.,0.,0.], alpha=0., beta=0., gamma=0., a=1., b=1.):
-        Plane.__init__(self, normal=normal, center=center, alpha=alpha, beta=beta, gamma=gamma, a=a, b=b)
-        nn.Module.__init__(self)
+        return reflected_ray    
         
 
 #%% Camera  class
 class Camera(Plane, nn.Module):
+    """
+    Define a pinhole camera.
+    Parameters:
+    - aperture ((3,1) tensor): Aperture of the camera (0,0,0) for the primary camera
+    - width (float): Width of the camera sensor in mm
+    - height (float): Height of the camera sensor in mm
+    - focal_length_pixels (float): Focal length of the camera in pixels
+    - pixel_size (float): Pixel size in mm (assumes a square pixel)
+    - principal_point_pixel ((2,1) tensor): Principal point (on the sensor) in pixels
+    """
     # NOTE: The plane defines the camera sensor, not the aperture plane
     def __init__(self, alpha=0., beta=0., gamma=0., aperture=[0.,0.,0.], 
                  axes=None, height=4.9152, width=6.144, focal_length_pixels=5696.3, pixel_size=4.8e-3, 
@@ -619,7 +622,6 @@ class Camera(Plane, nn.Module):
             principal_point_pixel = torch.tensor(principal_point_pixel, dtype=torch.float32)
             if len(principal_point_pixel.shape) == 1:
                 principal_point_pixel = principal_point_pixel.reshape((2, 1))
-
         
         self.aperture = aperture
         self.focal_length = focal_length_pixels * pixel_size
@@ -627,12 +629,11 @@ class Camera(Plane, nn.Module):
         self.n_horizontal_pixels = width / self.pixel_size
         self.n_vertical_pixels = height / self.pixel_size
         self.principal_point = self.get_principal_point_from_aperture()
-        #self.principal_point = torch.tensor([0.,0.,-self.focal_length], dtype=torch.float32)[:,None] 
         self.principal_point_pixel = principal_point_pixel
+        
+        # Plane (defining the camera) center should be shifted so that the principal point is along the normal plane through the aperture
         delta_principal_point = torch.tensor([self.a/2 - self.pixel_size*principal_point_pixel[0], self.b/2 - self.pixel_size*principal_point_pixel[1]]) 
         self.center = ((self.principal_point[0,:] + delta_principal_point[0]) * self.horizontal_direction + (self.principal_point[1,:] + delta_principal_point[1]) * self.vertical_direction) + self.principal_point
-        
-        #self.move_plane(displacement=torch.tensor([self.a/2, self.b/2, 0.])[:,None] - delta_principal_point)
                 
 
     def forward(self, pixel):
@@ -666,12 +667,10 @@ class Camera(Plane, nn.Module):
         Convert pixel coordinates to world coordinates.
         pixels: (N,2) array of pixel coordinates
         """
-        d_digital_pixels = digital_pixels - self.principal_point_pixel 
-        d_world_pixels = d_digital_pixels * self.pixel_size
-        #digital_pixels[0,:] = -digital_pixels[0,:]
-        #digital_pixels[1,:] = -digital_pixels[1,:] # Flip the y-axis
-        # NOTE: For the camera, horizontal plane direction is the self.horizontal_direction
-        pixels = d_world_pixels[0,:] * (-1) * self.horizontal_direction + d_world_pixels[1,:] * (-1) * self.vertical_direction + self.principal_point
+        d_digital_pixels = digital_pixels - self.principal_point_pixel # Distance of the pixels from the principal point in the digital coordinates
+        d_world_pixels = d_digital_pixels * self.pixel_size # Distance of the pixels from the principal point in the world coordinates
+        # NOTE: Pixels are moved in the negative direction because the pinhole model inverts the image along both axes
+        pixels = d_world_pixels[0,:] * (-1) * self.horizontal_direction + d_world_pixels[1,:] * (-1) * self.vertical_direction + self.principal_point # pixel location on the sensor in world coordinates
         return pixels
     
     def update_camera_pose(self, R, T):
@@ -686,7 +685,6 @@ class Camera(Plane, nn.Module):
         self.center = self.center + torch.cat((
             self.principal_point_pixel[:,0] * self.pixel_size - torch.tensor([self.a/2, self.b/2]), torch.tensor([0.])))[:, None]
         self.principal_point = self.get_principal_point_from_aperture()
-        #self.aperture = self.center + self.focal_length * self.axes[:,0].unsqueeze(-1)
         
 
 def visualize_camera_configuration(camera=None, prism=None, pixels=None, ax=None, fig=None, color_labels=None):
@@ -759,7 +757,6 @@ class Prism(nn.Module):
         self.prism_center = prism_center
         self.refractive_index_glass = refractive_index_glass
         self.refractive_index_air = refractive_index_air
-        #self.plane1, self.plane2, self.plane3 = self.get_planes()
         
     def get_planes(self, prism_center, prism_angles):
        
@@ -769,7 +766,6 @@ class Prism(nn.Module):
                             torch.tensor([[1.,0.,0.], [0.,1.,0.], [0.,0.,1.]], dtype=torch.float32).t()
                             )
         
-        #print(axes1.grad_fn.next_functions)
         plane1 = RefractingPlane(
                             refractive_idx_1=self.refractive_index_air,
                             refractive_idx_2=self.refractive_index_glass,
@@ -785,7 +781,7 @@ class Prism(nn.Module):
                             )
         
         axes2 = torch.mm(rot_mat, axes_135)
-        #plane2_center = nn.Parameter(plane1.center - plane1.axes[:,0].unsqueeze(-1) * self.prism_size[1] / 2)
+
         plane2_center = plane1.center - plane1.axes[:,0].unsqueeze(-1) * self.prism_size[1] / 2
         plane2 = ReflectingPlane(
                             axes=axes2,
@@ -799,7 +795,7 @@ class Prism(nn.Module):
                             torch.tensor([[1.,0.,0.], [0.,1.,0.], [0.,0.,1.]], dtype=torch.float32).t()
                             )
         axes3 = torch.mm(rot_mat, axes3)
-        #plane3_center = nn.Parameter(plane2.center + plane1.axes[:,2].unsqueeze(-1) * self.prism_size[1] / 2)
+
         plane3_center = plane2.center + plane1.axes[:,2].unsqueeze(-1) * self.prism_size[1] / 2        
         plane3 = RefractingPlane(
                             refractive_idx_1=self.refractive_index_air,
@@ -834,7 +830,6 @@ class Prism(nn.Module):
         if (len(displacement.shape) == 1):
             displacement = displacement.unsqueeze(-1)        
         self.prism_center_add(displacement)
-        #self.prism_center = nn.Parameter(self.plane1.center + displacement)
 
 
     def forward(self, incident_ray):
