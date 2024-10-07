@@ -636,11 +636,16 @@ class Camera(Plane, nn.Module):
         self.center = ((self.principal_point[0,:] + delta_principal_point[0]) * self.horizontal_direction + (self.principal_point[1,:] + delta_principal_point[1]) * self.vertical_direction) + self.principal_point
                 
 
-    def forward(self, pixel):
+    def forward(self, pixel, distortion_parameters=None):
         if not isinstance(pixel, torch.Tensor):
             pixel = torch.tensor(pixel, dtype=torch.float32)
             if len(pixel.shape) == 1:
                 pixel = pixel.reshape((2, 1))
+        r = torch.sqrt(torch.sum(pixel ** 2, dim=0))[None, :]
+        if distortion_parameters:
+            distortion_factor = (1 + distortion_parameters[0] * r**2 + distortion_parameters[1] ** r**4 + distortion_parameters[2] * r**6) / ...
+            (1 + distortion_parameters[3] * r**2 + distortion_parameters[4] ** r**4 + distortion_parameters[5] * r**6)
+            pixel = (pixel - self.principal_point_pixel) * distortion_factor + self.principal_point_pixel
         pixels = self.pixels_to_world(pixel)
         aperture = self.aperture.repeat(1, pixels.shape[1]).clone()
         ray = Ray(origin=pixels, target=aperture)
@@ -801,8 +806,8 @@ class Prism(nn.Module):
 
         plane3_center = plane2.center + plane1.axes[:,2].unsqueeze(-1) * self.prism_size[1] / 2        
         plane3 = RefractingPlane(
-                            refractive_idx_1=self.refractive_index_air,
-                            refractive_idx_2=self.refractive_index_glass,
+                            refractive_idx_1=self.refractive_index_glass,
+                            refractive_idx_2=self.refractive_index_air,
                             axes=axes3,
                             a = self.prism_size[0],
                             b = self.prism_size[1],
