@@ -113,14 +113,34 @@ class Arena(nn.Module):
     prism_center=None):
         super(Arena, self).__init__()
 
-        # Camera initialization        
+        # Camera initialization      
+        principal_point_pixel_cam_0 = nn.Parameter(
+            torch.tensor(principal_point_pixel_cam_0, dtype=torch.float32).reshape(2,1),
+            requires_grad=True,
+        )  
+
+        principal_point_pixel_cam_1 = nn.Parameter(
+            torch.tensor(principal_point_pixel_cam_1, dtype=torch.float32).reshape(2,1),
+            requires_grad=True,
+        )  
+
+        focal_length_cam_0 = nn.Parameter(
+            torch.tensor(focal_length_cam_0, dtype=torch.float32),
+            requires_grad=True,
+        )
+
+        focal_length_cam_1 = nn.Parameter(
+            torch.tensor(focal_length_cam_1, dtype=torch.float32),
+            requires_grad=True,
+        )
+
         self.camera1 = Camera(
             principal_point_pixel=principal_point_pixel_cam_0, 
             focal_length_pixels=focal_length_cam_0)
-        self.camera2 = Camera(
-            principal_point_pixel=principal_point_pixel_cam_1, 
-            focal_length_pixels=focal_length_cam_1)
-        self.camera2.update_camera_pose(R, T)
+        self.principal_point_pixel_cam_1 = principal_point_pixel_cam_1
+        self.focal_length_cam_1 = focal_length_cam_1
+        self.R = R
+        self.T = T
         
         # Prism initialization
         prism_angles = nn.Parameter(prism_angles, requires_grad=True)
@@ -138,17 +158,36 @@ class Arena(nn.Module):
                         prism_angles=prism_angles,
                         refractive_index_glass=refractive_index_glass,
                         )
-        freeze_camera_parameters(self.camera1)
-        freeze_camera_parameters(self.camera2)
+        #freeze_camera_parameters(self.camera1)
+        #freeze_camera_parameters(self.camera2)
         #freeze_individual_planes(self.prism)
     
+    def get_camera_2(self, 
+                     principal_point_pixel_cam_1,
+                     focal_length_cam_1,
+                     R,
+                     T):
+        camera2 = Camera(
+            principal_point_pixel=principal_point_pixel_cam_1, 
+            focal_length_pixels=focal_length_cam_1)
+        camera2.update_camera_pose(R, T)
+        return camera2
+    
     def forward(self, pixels_virtual_two_cams):
-        undistorted_virtual_pixels_cam_0 = pixels_virtual_two_cams[:2, :]
-        undistorted_virtual_pixels_cam_1 = pixels_virtual_two_cams[2:, :]
+        camera2 = self.get_camera_2(self.principal_point_pixel_cam_1,
+                                    self.focal_length_cam_1,
+                                    self.R,
+                                    self.T)
+        undistorted_virtual_pixels_cam_0 = pixels_virtual_two_cams[:2,:]
+        undistorted_virtual_pixels_cam_1 = pixels_virtual_two_cams[2:,:]
+        self.camera1.undistort_pixels(undistorted_virtual_pixels_cam_0)
+        camera2.undistort_pixels(undistorted_virtual_pixels_cam_1)
+        #undistorted_virtual_pixels_cam_0 = pixels_virtual_two_cams[:2, :]
+        #undistorted_virtual_pixels_cam_1 = pixels_virtual_two_cams[2:, :]
         #cam_1_ray = self.camera1.initialize_ray(undistorted_virtual_pixels_cam_0)
         cam_1_ray = self.camera1(undistorted_virtual_pixels_cam_0)
         #cam_2_ray = self.camera2.initialize_ray(undistorted_virtual_pixels_cam_1)
-        cam_2_ray = self.camera2(undistorted_virtual_pixels_cam_1)
+        cam_2_ray = camera2(undistorted_virtual_pixels_cam_1)
         prism_ray11, prism_ray12, emergent_ray_1 = self.prism(cam_1_ray)
         prism_ray21, prism_ray22, emergent_ray_2 = self.prism(cam_2_ray)
         recon_3D, closest_distance = closest_point(emergent_ray_1, emergent_ray_2)
@@ -171,10 +210,14 @@ class Arena(nn.Module):
         fig, ax = self.prism.visualize_prism(fig, ax)
         emergent_ray1.t *= 25
         fig, ax = emergent_ray1.visualize(fig, ax, color_labels)
-
-        ray = self.camera2.initialize_ray(undistorted_virtual_pixels_cam_1[:, test_idx])
+        
+        camera2 = self.get_camera_2(self.principal_point_pixel_cam_1,
+                                self.focal_length_cam_1,
+                                self.R,
+                                self.T)
+        ray = camera2.initialize_ray(undistorted_virtual_pixels_cam_1[:, test_idx])
         ray.t *= 100
-        fig, ax = self.camera2.visualize(fig, ax)
+        fig, ax = camera2.visualize(fig, ax)
         fig, ax = ray.visualize(fig, ax, color_labels)
         prism_ray21, prism_ray22, emergent_ray2 = self.prism(ray)
         fig, ax = self.prism.visualize_prism(fig, ax)
@@ -287,7 +330,7 @@ pixels_virtual_two_cams_train, pixels_virtual_two_cams_val = random_split(
 train_loader = DataLoader(pixels_virtual_two_cams_train, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(pixels_virtual_two_cams_val, batch_size=batch_size, shuffle=False)
 
-num_epochs = 750
+num_epochs = 650
 optimizer = optim.Adam(arena.parameters(), lr=5e-3
                        )
 criterion = torch.nn.MSELoss()

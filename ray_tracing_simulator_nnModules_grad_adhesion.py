@@ -603,10 +603,8 @@ class Camera(Plane, nn.Module):
     """
     # NOTE: The plane defines the camera sensor, not the aperture plane
     def __init__(self, alpha=0., beta=0., gamma=0., aperture=[0.,0.,0.], 
-                 axes=None, height=4.9152, width=6.144, focal_length_pixels=5696.3, 
-                 pixel_size=4.8e-3, 
-                 principal_point_pixel=None,
-                 K=1.):
+                 axes=None, height=4.9152, width=6.144, focal_length_pixels=5696.3, pixel_size=4.8e-3, 
+                 principal_point_pixel=None):
         axes=torch.tensor([
                 [0., 1., 0.],
                 [0., 0., 1.],
@@ -627,31 +625,28 @@ class Camera(Plane, nn.Module):
         
         self.aperture = aperture
         self.focal_length_pixels = focal_length_pixels
+        self.focal_length = self.focal_length_pixels * pixel_size
         self.pixel_size = pixel_size
         self.n_horizontal_pixels = width / self.pixel_size
         self.n_vertical_pixels = height / self.pixel_size
         self.principal_point = self.get_principal_point_from_aperture()
         self.principal_point_pixel = principal_point_pixel
-        self.K = K # Radial distortion parameter
         
         # Plane (defining the camera) center should be shifted so that the principal point is along the normal plane through the aperture
-        #delta_principal_point = torch.tensor(
-        #    [self.a/2 - self.pixel_size*self.principal_point_pixel[0], self.b/2 - self.pixel_size*principal_point_pixel[1]]) 
-        #self.center = ((self.principal_point[0,:] + delta_principal_point[0]) * self.horizontal_direction + (self.principal_point[1,:] + delta_principal_point[1]) * self.vertical_direction) + self.principal_point
-                
-    def update_camera_center(self):
-        delta_principal_point = torch.tensor(
-            [self.a/2 - self.pixel_size*self.principal_point_pixel[0], self.b/2 - self.pixel_size*self.principal_point_pixel[1]]) 
+        delta_principal_point = torch.tensor([self.a/2 - self.pixel_size*principal_point_pixel[0], self.b/2 - self.pixel_size*principal_point_pixel[1]]) 
         self.center = ((self.principal_point[0,:] + delta_principal_point[0]) * self.horizontal_direction + (self.principal_point[1,:] + delta_principal_point[1]) * self.vertical_direction) + self.principal_point
+                
 
     def forward(self, pixel, distortion_parameters=None):
-        self.get_principal_point_from_aperture()
-        self.update_camera_center()
         if not isinstance(pixel, torch.Tensor):
             pixel = torch.tensor(pixel, dtype=torch.float32)
             if len(pixel.shape) == 1:
                 pixel = pixel.reshape((2, 1))
         r = torch.sqrt(torch.sum(pixel ** 2, dim=0))[None, :]
+        if distortion_parameters:
+            distortion_factor = (1 + distortion_parameters[0] * r**2 + distortion_parameters[1] ** r**4 + distortion_parameters[2] * r**6) / ...
+            (1 + distortion_parameters[3] * r**2 + distortion_parameters[4] ** r**4 + distortion_parameters[5] * r**6)
+            pixel = (pixel - self.principal_point_pixel) * distortion_factor + self.principal_point_pixel
         pixels = self.pixels_to_world(pixel)
         aperture = self.aperture.repeat(1, pixels.shape[1]).clone()
         ray = Ray(origin=pixels, target=aperture)
@@ -670,9 +665,7 @@ class Camera(Plane, nn.Module):
 
 
     def get_principal_point_from_aperture(self):
-        focal_length = self.focal_length_pixels * self.pixel_size
-        self.principal_point = self.aperture - focal_length * self.axes[:,0].unsqueeze(-1)
-
+        return self.aperture - self.focal_length * self.axes[:,0].unsqueeze(-1)
         
     def initialize_ray(self, pixel):
         """
@@ -687,17 +680,14 @@ class Camera(Plane, nn.Module):
         ray = Ray(origin=pixels, target=aperture)
         return ray
     
-    
     def pixels_to_world(self, digital_pixels):
         """
         Convert pixel coordinates to world coordinates.
         pixels: (N,2) array of pixel coordinates
         """
-        
         d_digital_pixels = digital_pixels - self.principal_point_pixel # Distance of the pixels from the principal point in the digital coordinates
         d_world_pixels = d_digital_pixels * self.pixel_size # Distance of the pixels from the principal point in the world coordinates
         # NOTE: Pixels are moved in the negative direction because the pinhole model inverts the image along both axes
-        self.get_principal_point_from_aperture()
         pixels = d_world_pixels[0,:] * (-1) * self.horizontal_direction + d_world_pixels[1,:] * (-1) * self.vertical_direction + self.principal_point # pixel location on the sensor in world coordinates
         return pixels
     
@@ -705,42 +695,15 @@ class Camera(Plane, nn.Module):
         """
         Update the camera pose, given the camera extrinsics as Rotation Matrix (R) and Translation vector (t)
         """
-        focal_length = self.focal_length_pixels * self.pixel_size
         self.move_plane(displacement=self.aperture - self.center) # Move center to aperture
         self.move_plane(displacement=-T.clone())
-        self.rotate_plane(rot_mat=R.clone())
+        self.rotate_plane(rot_mat=R.clone()) 
         self.aperture = self.center
-        self.center = self.aperture - focal_length * self.axes[:,0].unsqueeze(-1)
+        self.center = self.aperture - self.focal_length * self.axes[:,0].unsqueeze(-1)
         self.center = self.center + torch.cat((
             self.principal_point_pixel[:,0] * self.pixel_size - torch.tensor([self.a/2, self.b/2]), torch.tensor([0.])))[:, None]
-        self.get_principal_point_from_aperture()
+        self.principal_point = self.get_principal_point_from_aperture()
         
-    def distort_pixels(self, pixels):
-        """
-        Lens distortion is based on the radial division model
-        K: Distortion coefficients
-        """
-        radius_sq = pixels[0,:].clone() ** 2 + pixels[1,:].clone() ** 2
-        pixels[0,:] = self.principal_point_pixel[0] + (
-            pixels[0,:] - self.principal_point_pixel[0]
-        ) / (2 * self.K * radius_sq
-        ) * (1 - torch.sqrt(1 - 4 * self.K * radius_sq)
-        )
-        pixels[1,:] = self.principal_point_pixel[1] + (
-            pixels[1,:] - self.principal_point_pixel[1]
-        ) / (2 * self.K * radius_sq
-        ) * (1 - torch.sqrt(1 - 4 * self.K * radius_sq)
-        )
-        
-    def undistort_pixels(self, pixels):
-        radius_sq = pixels[0,:].clone() ** 2 + pixels[1,:].clone() ** 2
-        pixels[0,:] = self.principal_point_pixel[0] + (
-            pixels[0,:] - self.principal_point_pixel[0]
-        ) / (1 + self.K * radius_sq)
-        pixels[1,:] = self.principal_point_pixel[1] + (
-            pixels[1,:] - self.principal_point_pixel[1]
-        ) / (1 + self.K * radius_sq)
-
 
 def visualize_camera_configuration(camera=None, prism=None, pixels=None, ax=None, fig=None, color_labels=None):
     """
@@ -782,7 +745,9 @@ class Prism(nn.Module):
                 prism_angles=[0.,0.,0.], 
                 prism_center=[0.,0.,0.], 
                 refractive_index_glass=1.5, 
-                refractive_index_air=1.):
+                refractive_index_air=1.,
+                adhesion_thickness_factor=20,
+                refractive_index_adhesion=1.5):
         """
         Parameters:
         - prism_size (list): Width (X), Height (Y) and Depth (Z) of the prism.
@@ -815,6 +780,8 @@ class Prism(nn.Module):
         self.prism_center = prism_center
         self.refractive_index_glass = refractive_index_glass
         self.refractive_index_air = refractive_index_air
+        self.adhesion_thickness_factor = adhesion_thickness_factor
+        self.refractive_index_adhesion = refractive_index_adhesion
         
     def get_planes(self, prism_center, prism_angles):
        
@@ -840,13 +807,25 @@ class Prism(nn.Module):
         
         axes2 = torch.mm(rot_mat, axes_135)
 
+        
         plane2_center = plane1.center - plane1.axes[:,0].unsqueeze(-1) * self.prism_size[1] / 2
-        plane2 = ReflectingPlane(
+        plane2 = RefractingPlane(
+                            refractive_idx_1=self.refractive_index_air,
+                            refractive_idx_2=self.refractive_index_adhesion,
                             axes=axes2,
                             a=self.prism_size[0],
                             b=self.prism_size[1] * torch.sqrt(torch.tensor(2.)),
                             center=plane2_center,
                             )
+
+        plane3_center = plane1.center - plane1.axes[:,0].unsqueeze(-1) * (self.prism_size[1] / 2 + self.prism_size[1] / self.adhesion_thickness_factor)
+        plane3 = ReflectingPlane(
+                            axes=axes2,
+                            a=self.prism_size[0],
+                            b=self.prism_size[1] * torch.sqrt(torch.tensor(2.)),
+                            center=plane3_center,
+                            )
+
         
         rot_90 = get_rot_mat(0.,pi/2,0.)
         axes3 = torch.mm(rot_90,
@@ -854,16 +833,16 @@ class Prism(nn.Module):
                             )
         axes3 = torch.mm(rot_mat, axes3)
 
-        plane3_center = plane2.center + plane1.axes[:,2].unsqueeze(-1) * self.prism_size[1] / 2        
-        plane3 = RefractingPlane(
+        plane4_center = plane2.center + plane1.axes[:,2].unsqueeze(-1) * self.prism_size[1] / 2        
+        plane4 = RefractingPlane(
                             refractive_idx_1=self.refractive_index_glass,
                             refractive_idx_2=self.refractive_index_air,
                             axes=axes3,
                             a = self.prism_size[0],
                             b = self.prism_size[1],
-                            center=plane3_center,
+                            center=plane4_center,
                             )
-        return plane1, plane2, plane3
+        return plane1, plane2, plane3, plane4
     
    
     def rotate_prism(self, alpha=0., beta=0., gamma=0.):
@@ -891,22 +870,24 @@ class Prism(nn.Module):
 
 
     def forward(self, incident_ray):
-        plane1, plane2, plane3 = self.get_planes(self.prism_center, self.prism_angles)
+        plane1, plane2, plane3, plane4 = self.get_planes(self.prism_center, self.prism_angles)
         ray1 = plane1(incident_ray)
         ray2 = plane2(ray1)
         ray3 = plane3(ray2)
-        return ray1, ray2, ray3
+        ray4 = plane4(ray3)
+        return ray1, ray2, ray3, ray4
     
     def visualize_prism(self, fig=None, ax=None):
         if fig is None:
             fig = plt.figure(figsize=(10,10))
         if ax is None:
             ax = fig.add_subplot(111, projection='3d')
-        plane1, plane2, plane3 = self.get_planes(self.prism_center,
+        plane1, plane2, plane3, plane4 = self.get_planes(self.prism_center,
                                                  self.prism_angles)
         fig, ax = plane1.visualize(fig, ax)
         fig, ax = plane2.visualize(fig, ax, color=[[0.5, 0.5, 0.5]])
         fig, ax = plane3.visualize(fig, ax, color=[0.5, 0.5, 0.5])
+        fig, ax = plane4.visualize(fig, ax, color=[0.5, 0.5, 0.5])
         ax.set_xlabel('X (mm)', fontsize=24)
         ax.set_ylabel('Y (mm)', fontsize=24)
         ax.set_zlabel('Z (mm)', fontsize=24)
@@ -917,18 +898,21 @@ class Prism(nn.Module):
             fig = plt.figure(figsize=(10,10))
         if ax is None:
             ax = fig.add_subplot(111, projection='3d')
-        plane1, plane2, plane3 = self.get_planes(self.prism_center,
+        plane1, plane2, plane3, plane4= self.get_planes(self.prism_center,
                                                 self.prism_angles)
         ray2 = plane1(incident_ray)
         ray3 = plane2(ray2)
         ray4 = plane3(ray3)
+        ray5 = plane4(ray4)
         fig, ax = plane1.visualize(fig, ax, color=[0.5, 0.5, 0.5])
         fig, ax = plane2.visualize(fig, ax, color=[[0.5, 0.5, 0.5]])
         fig, ax = plane3.visualize(fig, ax, color=[0.5, 0.5, 0.5])
+        fig, ax = plane4.visualize(fig, ax, color=[0.5, 0.5, 0.5])
         fig, ax = incident_ray.visualize(fig, ax, color_labels=color_labels)
         fig, ax = ray2.visualize(fig, ax, color_labels=color_labels)
         fig, ax = ray3.visualize(fig, ax, color_labels=color_labels)
         fig, ax = ray4.visualize(fig, ax, color_labels=color_labels)
+        fig, ax = ray5.visualize(fig, ax, color_labels=color_labels)
         ax.set_xlabel('X (mm)', fontsize=24)
         ax.set_ylabel('Y (mm)', fontsize=24)
         ax.set_zlabel('Z (mm)', fontsize=24)
@@ -947,7 +931,7 @@ def closest_point(ray1, ray2):
     return (c1 + c2) / 2, torch.linalg.norm(c1 - c2, dim=0)
 
 
-# %% Arena class
+# %% Arena class with adhesion layer
 class Arena(nn.Module):
     def __init__(self, 
     principal_point_pixel_cam_0, 
@@ -1015,7 +999,7 @@ if __name__=="__main__":
         origin_point[2,:] = -0.3
         target_point[1,:] = 0.075
         ray = Ray(origin=origin_point, target=target_point)
-        _, _, emergent_ray = prism(ray) 
+        _, _, _, emergent_ray = prism(ray) 
         fig, ax = prism.visualize_prism_and_ray(ray, color_labels=True)
         ax.set_aspect('equal', adjustable='datalim')
         plt.show()

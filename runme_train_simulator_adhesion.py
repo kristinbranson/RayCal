@@ -1,5 +1,5 @@
 # %% Imports
-from ray_tracing_simulator_nnModules_grad import Prism, Ray, Plane, ReflectingPlane, RefractingPlane, Camera, visualize_camera_configuration, closest_point, rotx
+from ray_tracing_simulator_nnModules_grad_adhesion import Prism, Ray, Plane, ReflectingPlane, RefractingPlane, Camera, visualize_camera_configuration, closest_point, rotx
 import matplotlib.pyplot as plt
 import numpy as np  
 import torch
@@ -110,7 +110,9 @@ class Arena(nn.Module):
     T, 
     prism_distance=None,
     prism_angles=None,
-    prism_center=None):
+    prism_center=None,
+    adhesion_thickness_factor=None,
+    adhesion_refractive_index=None):
         super(Arena, self).__init__()
 
         # Camera initialization        
@@ -132,11 +134,15 @@ class Arena(nn.Module):
 
         prism_center = nn.Parameter(prism_center, requires_grad=True)
         prism_size = nn.Parameter(torch.tensor([20.,20.,20.],dtype=torch.float32), requires_grad=True)
+        adhesion_thickness_factor = nn.Parameter(torch.tensor(20.), requires_grad=True)
+        refractive_index_adhesion = nn.Parameter(torch.tensor(1.6), requires_grad=True)
         #prism_size = torch.tensor([20.,20.,20.], dtype=torch.float32)
         self.prism = Prism(prism_size=prism_size, 
                         prism_center=prism_center, 
                         prism_angles=prism_angles,
                         refractive_index_glass=refractive_index_glass,
+                        adhesion_thickness_factor=adhesion_thickness_factor,
+                        refractive_index_adhesion=refractive_index_adhesion,
                         )
         freeze_camera_parameters(self.camera1)
         freeze_camera_parameters(self.camera2)
@@ -149,8 +155,8 @@ class Arena(nn.Module):
         cam_1_ray = self.camera1(undistorted_virtual_pixels_cam_0)
         #cam_2_ray = self.camera2.initialize_ray(undistorted_virtual_pixels_cam_1)
         cam_2_ray = self.camera2(undistorted_virtual_pixels_cam_1)
-        prism_ray11, prism_ray12, emergent_ray_1 = self.prism(cam_1_ray)
-        prism_ray21, prism_ray22, emergent_ray_2 = self.prism(cam_2_ray)
+        prism_ray11, prism_ray12, _, emergent_ray_1 = self.prism(cam_1_ray)
+        prism_ray21, prism_ray22, _,  emergent_ray_2 = self.prism(cam_2_ray)
         recon_3D, closest_distance = closest_point(emergent_ray_1, emergent_ray_2)
         return recon_3D, closest_distance, prism_ray11, prism_ray12, prism_ray21, prism_ray22
 
@@ -165,7 +171,7 @@ class Arena(nn.Module):
         ray.t *= 100
         fig, ax = self.camera1.visualize()
         fig, ax = ray.visualize(fig, ax, color_labels)
-        prism_ray11, prism_ray12, emergent_ray1 = self.prism(ray)
+        prism_ray11, prism_ray12, _, emergent_ray1 = self.prism(ray)
         fig, ax = prism_ray11.visualize(fig, ax, color_labels)
         fig, ax = prism_ray12.visualize(fig, ax, color_labels)
         fig, ax = self.prism.visualize_prism(fig, ax)
@@ -176,12 +182,12 @@ class Arena(nn.Module):
         ray.t *= 100
         fig, ax = self.camera2.visualize(fig, ax)
         fig, ax = ray.visualize(fig, ax, color_labels)
-        prism_ray21, prism_ray22, emergent_ray2 = self.prism(ray)
+        prism_ray21, prism_ray22, _, emergent_ray2 = self.prism(ray)
         fig, ax = self.prism.visualize_prism(fig, ax)
         fig, ax = prism_ray21.visualize(fig, ax, color_labels)
         fig, ax = prism_ray22.visualize(fig, ax, color_labels)
         emergent_ray2.t *= 25
-        emergent_ray2.visualize(fig, ax, color_labels)
+        fig, ax = emergent_ray2.visualize(fig, ax, color_labels)
         ax.set_aspect('equal', adjustable='datalim')   
 
 
@@ -194,7 +200,9 @@ arena = Arena(principal_point_pixel_cam_0,
             R,
             T, 
             prism_angles=prism_angles,
-            prism_center=prism1_center)
+            prism_center=prism1_center,
+            adhesion_thickness_factor=None,
+            adhesion_refractive_index=None)
 pixels_virtual_two_cams = torch.vstack((undistorted_virtual_pixels_cam_0, undistorted_virtual_pixels_cam_1))
 pixels_real_two_cams = torch.vstack((undistorted_real_pixels_cam_0, undistorted_real_pixels_cam_1))
 
@@ -337,6 +345,7 @@ for epoch in tqdm(range(num_epochs)):
 
     gt_val_loss_array.append(gt_loss)
     closest_distance_val_loss_array.append(dist_loss)
+
 
 
 # %% Validate the model

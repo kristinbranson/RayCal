@@ -290,6 +290,14 @@ print(f'Mean distance error for camera 1: {distance1.mean()}')
 print(f'Mean distance error for camera 2: {distance2.mean()}')
 print(f'Mean distance error for closest approach: {recon_3D_error.mean()}')
 
+reprojected_pixels_cam_0 = camera1.reproject_using_intrinsics(recon_3D)
+reprojection_error = torch.linalg.norm(
+    reprojected_pixels_cam_0 - undistorted_real_pixels_cam_0, 
+    dim=0).mean()
+
+# Reprojection error for Camera 1
+print(f'Mean reprojection error for camera 1: {reprojection_error.numpy()} pixels')
+
 # %% Testing Arena
 principal_point_pixel_cam_0 = [638.040 - 1, 492.499 - 1] # This comes from the calibration results
 principal_point_pixel_cam_1 = [659.3778 - 1, 521.5078 - 1]
