@@ -1,5 +1,5 @@
 # %% Imports
-from ray_tracing_simulator_nnModules_grad import Prism, Ray, Plane, ReflectingPlane, RefractingPlane, Camera, visualize_camera_configuration, closest_point, rotx
+from ray_tracing_simulator_nnModules_grad import Prism, Ray, Plane, ReflectingPlane, RefractingPlane, Camera, visualize_camera_configuration, closest_point, rotx, get_rot_mat
 import matplotlib.pyplot as plt
 import numpy as np  
 import torch
@@ -40,14 +40,14 @@ model_checkpoint_dir = f'{outputs_dir}/model_checkpoints/{now.year}_{now.month}_
 os.makedirs(model_checkpoint_dir, exist_ok=True)
 
 mat = sio.loadmat(calibration_results_path)
-undistorted_virtual_pixels_cam_0 = torch.tensor(mat['output_data_cam_02_undistorted'], dtype=torch.float32, requires_grad=True).T - 1
-undistorted_virtual_pixels_cam_1 = torch.tensor(mat['output_data_cam_13_undistorted'], dtype=torch.float32, requires_grad=True).T - 1
-undistorted_real_pixels_cam_0 = torch.tensor(mat['output_data_cam_0_undistorted'], dtype=torch.float32).T - 1
-undistorted_real_pixels_cam_1 = torch.tensor(mat['output_data_cam_1_undistorted'], dtype=torch.float32).T - 1
+virtual_pixels_cam_0 = torch.tensor(mat['output_data_cam_02'], dtype=torch.float32, requires_grad=True).T 
+virtual_pixels_cam_1 = torch.tensor(mat['output_data_cam_13'], dtype=torch.float32, requires_grad=True).T 
+undistorted_real_pixels_cam_0 = torch.tensor(mat['output_data_cam_0_undistorted'], dtype=torch.float32).T 
+undistorted_real_pixels_cam_1 = torch.tensor(mat['output_data_cam_1_undistorted'], dtype=torch.float32).T 
 target_coordinates = torch.tensor(mat['input_data'], dtype=torch.float32).T
 
-principal_point_pixel_cam_0 = [638.040 - 1, 492.499 - 1] # This comes from the calibration results
-principal_point_pixel_cam_1 = [659.3778 - 1, 521.5078 - 1]
+principal_point_pixel_cam_0 = [638.040, 492.499] # This comes from the calibration results
+principal_point_pixel_cam_1 = [659.3778, 521.5078] # This comes from the calibration results
 
 
 R = torch.tensor([[0.819301743677432, 0.0073199538315673, -0.573315856298274],
@@ -106,8 +106,8 @@ class Arena(nn.Module):
     principal_point_pixel_cam_1, 
     focal_length_cam_0, 
     focal_length_cam_1, 
-    R, 
-    T, 
+    R_stereo_cam, 
+    T_stereo_cam, 
     prism_distance=None,
     prism_angles=None,
     prism_center=None):
@@ -134,13 +134,25 @@ class Arena(nn.Module):
             requires_grad=True,
         )
 
+        r1 = nn.Parameter(
+            torch.tensor(1e-16, dtype=torch.float32),
+            requires_grad=True,
+        )
+
         self.camera1 = Camera(
-            principal_point_pixel=principal_point_pixel_cam_0, 
-            focal_length_pixels=focal_length_cam_0)
+            principal_point_pixel=principal_point_pixel_cam_0,
+            focal_length_pixels=focal_length_cam_0,
+            r1=r1)
         self.principal_point_pixel_cam_1 = principal_point_pixel_cam_1
         self.focal_length_cam_1 = focal_length_cam_1
-        self.R = R
-        self.T = T
+        self.R_stereo_cam = R_stereo_cam
+        self.T_stereo_cam = nn.Parameter(T_stereo_cam, requires_grad=True)
+        stereo_alpha, stereo_beta, stereo_gamma = self.get_stereo_camera_angles(R_stereo_cam)
+        self.stereo_camera_angles = nn.Parameter(
+                                                torch.tensor([stereo_alpha, stereo_beta, stereo_gamma], dtype=torch.float32),
+                                                requires_grad=True
+                                                )
+
         
         # Prism initialization
         prism_angles = nn.Parameter(prism_angles, requires_grad=True)
@@ -162,7 +174,16 @@ class Arena(nn.Module):
         #freeze_camera_parameters(self.camera2)
         #freeze_individual_planes(self.prism)
     
-    def get_camera_2(self, 
+
+    def get_stereo_camera_angles(self, 
+                                 R_stereo_cam):
+        axes = torch.eye(3,3)
+        axes = torch.mm(R_stereo_cam, axes)
+        plane = Plane(axes=axes)
+        return plane.alpha, plane.beta, plane.gamma
+    
+
+    def get_stereo_camera(self, 
                      principal_point_pixel_cam_1,
                      focal_length_cam_1,
                      R,
@@ -173,15 +194,21 @@ class Arena(nn.Module):
         camera2.update_camera_pose(R, T)
         return camera2
     
+
     def forward(self, pixels_virtual_two_cams):
-        camera2 = self.get_camera_2(self.principal_point_pixel_cam_1,
+        R_stereo_cam = get_rot_mat(
+            self.stereo_camera_angles[0],
+            self.stereo_camera_angles[1],
+            self.stereo_camera_angles[2],
+            )
+        camera2 = self.get_stereo_camera(self.principal_point_pixel_cam_1,
                                     self.focal_length_cam_1,
-                                    self.R,
-                                    self.T)
-        undistorted_virtual_pixels_cam_0 = pixels_virtual_two_cams[:2,:]
-        undistorted_virtual_pixels_cam_1 = pixels_virtual_two_cams[2:,:]
-        self.camera1.undistort_pixels(undistorted_virtual_pixels_cam_0)
-        camera2.undistort_pixels(undistorted_virtual_pixels_cam_1)
+                                    R_stereo_cam,
+                                    self.T_stereo_cam)
+        distorted_virtual_pixels_cam_0 = pixels_virtual_two_cams[:2,:]
+        distorted_virtual_pixels_cam_1 = pixels_virtual_two_cams[2:,:]
+        undistorted_virtual_pixels_cam_0 = self.camera1.undistort_pixels(distorted_virtual_pixels_cam_0)
+        undistorted_virtual_pixels_cam_1 = camera2.undistort_pixels(distorted_virtual_pixels_cam_1)
         #undistorted_virtual_pixels_cam_0 = pixels_virtual_two_cams[:2, :]
         #undistorted_virtual_pixels_cam_1 = pixels_virtual_two_cams[2:, :]
         #cam_1_ray = self.camera1.initialize_ray(undistorted_virtual_pixels_cam_0)
@@ -191,7 +218,15 @@ class Arena(nn.Module):
         prism_ray11, prism_ray12, emergent_ray_1 = self.prism(cam_1_ray)
         prism_ray21, prism_ray22, emergent_ray_2 = self.prism(cam_2_ray)
         recon_3D, closest_distance = closest_point(emergent_ray_1, emergent_ray_2)
-        return recon_3D, closest_distance, prism_ray11, prism_ray12, prism_ray21, prism_ray22
+        R1 = torch.eye(3,3)
+        T1 = torch.zeros(3,1)
+        R2 = self.R_stereo_cam
+        T2 = self.T_stereo_cam
+        recon_undistorted_virtual_pixels_cam_0 = self.camera1.reproject(recon_3D, R1, T1)
+        recon_undistorted_virtual_pixels_cam_1 = camera2.reproject(recon_3D, R2, T2)
+        recon_distorted_virtual_pixels_cam_0 = self.camera1.distort_pixels(recon_undistorted_virtual_pixels_cam_0)
+        recon_distorted_virtual_pixels_cam_1 = camera2.distort_pixels(recon_undistorted_virtual_pixels_cam_1)
+        return recon_3D, closest_distance, recon_distorted_virtual_pixels_cam_0, recon_distorted_virtual_pixels_cam_1
 
 
     def visualize(self, pixels_virtual_two_cams, color_labels=None):
@@ -210,11 +245,15 @@ class Arena(nn.Module):
         fig, ax = self.prism.visualize_prism(fig, ax)
         emergent_ray1.t *= 25
         fig, ax = emergent_ray1.visualize(fig, ax, color_labels)
-        
-        camera2 = self.get_camera_2(self.principal_point_pixel_cam_1,
+        R_stereo_cam = get_rot_mat(
+            self.stereo_camera_angles[0],
+            self.stereo_camera_angles[1],
+            self.stereo_camera_angles[2],
+        )
+        camera2 = self.get_stereo_camera(self.principal_point_pixel_cam_1,
                                 self.focal_length_cam_1,
-                                self.R,
-                                self.T)
+                                R_stereo_cam,
+                                self.T_stereo_cam)
         ray = camera2.initialize_ray(undistorted_virtual_pixels_cam_1[:, test_idx])
         ray.t *= 100
         fig, ax = camera2.visualize(fig, ax)
@@ -238,34 +277,66 @@ arena = Arena(principal_point_pixel_cam_0,
             T, 
             prism_angles=prism_angles,
             prism_center=prism1_center)
-pixels_virtual_two_cams = torch.vstack((undistorted_virtual_pixels_cam_0, undistorted_virtual_pixels_cam_1))
+pixels_virtual_two_cams = torch.vstack((virtual_pixels_cam_0, virtual_pixels_cam_1))
 pixels_real_two_cams = torch.vstack((undistorted_real_pixels_cam_0, undistorted_real_pixels_cam_1))
 
 
 #%% Training and validation functions
-def train_two_cams(model, train_loader, criterion):    
+def train_two_cams(model, train_loader, criterion, plot=False):    
     model.train()
-        
     gt_loss = 0.
     dist_loss = 0.
     
     with torch.autograd.set_detect_anomaly(True):
         # Iterate over minibatches
+        if plot:
+            plt.figure()
         for input, label in train_loader:         
             num_examples = input.shape[0]       
             optimizer.zero_grad()
-            output, closest_distance, _, _, _, _ = model(input.T)
+            output, closest_distance, recon_distorted_pixels_1, recon_distorted_pixels_2 = model(
+                input.T)
             #ground_truth_loss = criterion(output, label.T)
+            recon_pixels = torch.cat((recon_distorted_pixels_1,
+            recon_distorted_pixels_2), dim=0)
             ground_truth_loss = torch.norm(
-                output.T - label, 
-                p=2, 
-                dim=1).sum()
+                    recon_pixels.T - input, 
+                    p=2, 
+                    dim=1).sum()
             closest_distance_loss = closest_distance.sum()
             loss = ground_truth_loss
             loss.backward()
             optimizer.step()
             gt_loss += ground_truth_loss.item()
             dist_loss += closest_distance_loss.item()
+            if plot:                
+                rand_ind = torch.randperm(recon_distorted_pixels_1.shape[1])
+                plt.subplot(121)
+                plt.scatter(
+                    recon_distorted_pixels_1[0,rand_ind].detach().numpy(),
+                    recon_distorted_pixels_1[1,rand_ind].detach().numpy(),
+                    s=0.5,
+                    c='r',
+                )
+                plt.scatter(
+                    input.T[0,rand_ind].detach().numpy(),
+                    input.T[1,rand_ind].detach().numpy(),
+                    s=0.5,
+                    c='g',
+                )
+                plt.subplot(122)
+                plt.scatter(
+                    recon_distorted_pixels_2[0,rand_ind].detach().numpy(),
+                    recon_distorted_pixels_2[1,rand_ind].detach().numpy(),
+                    s=0.5,
+                    c='r',
+                )
+                plt.scatter(
+                    input.T[2,rand_ind].detach().numpy(),
+                    input.T[3,rand_ind].detach().numpy(),
+                    s=0.5,
+                    c='g',
+                )
     return gt_loss / len(train_loader.dataset), dist_loss / len(train_loader.dataset)
 
 
@@ -288,10 +359,12 @@ def validate(model, val_dataloader, criterion):
     num_batches = 0
     with torch.no_grad():
         for input, label in val_dataloader:
-            output, closest_distance, _, _, _, _ = model(input.T)
-            #ground_truth_loss = criterion(output, label.T)
+            output, closest_distance, recon_distorted_pixels_1, recon_distorted_pixels_2 = model(input.T)
+            ground_truth_loss = criterion(output, label.T)
+            recon_pixels = torch.cat((recon_distorted_pixels_1,
+            recon_distorted_pixels_2), dim=0)
             ground_truth_loss = torch.norm(
-                    output.T - label, 
+                    recon_pixels.T - input, 
                     p=2, 
                     dim=1).sum()
             closest_distance_loss = closest_distance.sum()
@@ -330,8 +403,8 @@ pixels_virtual_two_cams_train, pixels_virtual_two_cams_val = random_split(
 train_loader = DataLoader(pixels_virtual_two_cams_train, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(pixels_virtual_two_cams_val, batch_size=batch_size, shuffle=False)
 
-num_epochs = 650
-optimizer = optim.Adam(arena.parameters(), lr=5e-3
+num_epochs = 800
+optimizer = optim.Adam(arena.parameters(), lr=1e-3
                        )
 criterion = torch.nn.MSELoss()
 device = torch.device("cpu")
@@ -346,13 +419,20 @@ gt_val_loss_array = []
 closest_distance_val_loss_array = []
 best_loss = 1e100
 
+plot = False
 for epoch in tqdm(range(num_epochs)):
     gt_loss, dist_loss = train_two_cams(model=arena, 
                     train_loader=train_loader, 
                     criterion=criterion,
+                    plot=plot
                     )
+    if plot:
+        plt.title(f'Epoch {epoch}')
+    plot = False
     if epoch % 5 == 0:
         print(f'Training loss for epoch {epoch}: gt_loss: {gt_loss}, dist_loss: {dist_loss}')
+        if epoch % 200 == 0:
+            plot = True
     gt_train_loss_array.append(gt_loss)
     closest_distance_train_loss_array.append(dist_loss)
 

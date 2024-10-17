@@ -295,7 +295,7 @@ pixels_virtual_two_cams_train, pixels_virtual_two_cams_val = random_split(
 train_loader = DataLoader(pixels_virtual_two_cams_train, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(pixels_virtual_two_cams_val, batch_size=batch_size, shuffle=False)
 
-num_epochs = 750
+num_epochs = 700
 optimizer = optim.Adam(arena.parameters(), lr=5e-3
                        )
 criterion = torch.nn.MSELoss()

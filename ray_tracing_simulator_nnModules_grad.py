@@ -11,8 +11,8 @@ import torch
 import torch.nn as nn
 import os
 import scipy.io as sio
-#mpl.use('TkAgg') # Use this if working on the PC
-mpl.use('QtAgg') # Use this if working remotely with NoMachine
+mpl.use('TkAgg') # Use this if working on the PC
+#mpl.use('QtAgg') # Use this if working remotely with NoMachine
 plt.ion()
 
 pi = torch.tensor(np.pi)
@@ -223,18 +223,16 @@ class Plane(nn.Module):
             b = torch.tensor(b, dtype=torch.float32)
 
         self.a = a
-        self.b = b
-        
+        self.b = b        
 
         if center is None:
             center = torch.tensor([0., 0., 0.], dtype=torch.float32)
 
-            
         if not isinstance(center, torch.Tensor):
             center = torch.tensor(center, dtype=torch.float32)
         
         if len(center.shape) == 1:
-            center = center.reshape((3, 1))                        
+            center = center.reshape((3, 1))
         self.center = center
         self.a = a
         self.b = b
@@ -602,15 +600,23 @@ class Camera(Plane, nn.Module):
     - principal_point_pixel ((2,1) tensor): Principal point (on the sensor) in pixels
     """
     # NOTE: The plane defines the camera sensor, not the aperture plane
-    def __init__(self, alpha=0., beta=0., gamma=0., aperture=[0.,0.,0.], 
+    def __init__(self, alpha=None, beta=None, gamma=None, aperture=[0.,0.,0.], 
                  axes=None, height=4.9152, width=6.144, focal_length_pixels=5696.3, 
                  pixel_size=4.8e-3, 
                  principal_point_pixel=None,
-                 K=1.):
+                 r1=0.):
+        if alpha is None:
+            alpha = 0.
+        if beta is None:
+            beta = 0.
+        if gamma is None:
+            gamma = 0.
+        
         axes=torch.tensor([
                 [0., 1., 0.],
                 [0., 0., 1.],
                 [1., 0., 0.]])
+        
         super(Camera, self).__init__(axes=axes, center=[0.,0.,0], alpha=alpha, beta=beta, gamma=gamma, a=width, b=height)
         if principal_point_pixel is None:
             principal_point_pixel = torch.tensor([width/pixel_size/2, height/pixel_size/2.], dtype=torch.float32)[:, None]
@@ -630,42 +636,34 @@ class Camera(Plane, nn.Module):
         self.pixel_size = pixel_size
         self.n_horizontal_pixels = width / self.pixel_size
         self.n_vertical_pixels = height / self.pixel_size
-        self.principal_point = self.get_principal_point_from_aperture()
+        self.principal_point = None
+        self.get_principal_point_from_aperture()
         self.principal_point_pixel = principal_point_pixel
-        self.K = K # Radial distortion parameter
-        
+        self.r1 = r1 # Radial distortion parameter
+        self.update_camera_center()
         # Plane (defining the camera) center should be shifted so that the principal point is along the normal plane through the aperture
         #delta_principal_point = torch.tensor(
         #    [self.a/2 - self.pixel_size*self.principal_point_pixel[0], self.b/2 - self.pixel_size*principal_point_pixel[1]]) 
         #self.center = ((self.principal_point[0,:] + delta_principal_point[0]) * self.horizontal_direction + (self.principal_point[1,:] + delta_principal_point[1]) * self.vertical_direction) + self.principal_point
                 
+
     def update_camera_center(self):
         delta_principal_point = torch.tensor(
             [self.a/2 - self.pixel_size*self.principal_point_pixel[0], self.b/2 - self.pixel_size*self.principal_point_pixel[1]]) 
         self.center = ((self.principal_point[0,:] + delta_principal_point[0]) * self.horizontal_direction + (self.principal_point[1,:] + delta_principal_point[1]) * self.vertical_direction) + self.principal_point
 
-    def forward(self, pixel, distortion_parameters=None):
-        self.get_principal_point_from_aperture()
-        self.update_camera_center()
-        if not isinstance(pixel, torch.Tensor):
-            pixel = torch.tensor(pixel, dtype=torch.float32)
-            if len(pixel.shape) == 1:
-                pixel = pixel.reshape((2, 1))
-        r = torch.sqrt(torch.sum(pixel ** 2, dim=0))[None, :]
-        pixels = self.pixels_to_world(pixel)
-        aperture = self.aperture.repeat(1, pixels.shape[1]).clone()
-        ray = Ray(origin=pixels, target=aperture)
-        return ray
 
-    def reproject_using_intrinsics(self, world_coordinate):
+    def reproject(self, world_coordinate, R, T):
+        # R is the camera rotation matrix
         intrinsic_matrix = torch.tensor(
-            [[self.focal_length_pixels, 0., self.principal_point_pixel[0], 0.], 
-             [0, self.focal_length_pixels, self.principal_point_pixel[1], 0.], 
-             [0., 0., 1., 0.]]
+            [[self.focal_length_pixels, 0., self.principal_point_pixel[0]], 
+             [0, self.focal_length_pixels, self.principal_point_pixel[1]], 
+             [0., 0., 1.]]
              )
         world_coordinate = torch.vstack((world_coordinate,
                                           torch.zeros(1,world_coordinate.shape[1])))
-        reprojected_pixels_hom = intrinsic_matrix @ world_coordinate
+        extrinsic_matrix = torch.cat((R.T, T), dim=1)
+        reprojected_pixels_hom = intrinsic_matrix @ extrinsic_matrix @ world_coordinate
         return reprojected_pixels_hom[:2, :] / reprojected_pixels_hom[2, :][None, :]
 
 
@@ -701,6 +699,7 @@ class Camera(Plane, nn.Module):
         pixels = d_world_pixels[0,:] * (-1) * self.horizontal_direction + d_world_pixels[1,:] * (-1) * self.vertical_direction + self.principal_point # pixel location on the sensor in world coordinates
         return pixels
     
+    
     def update_camera_pose(self, R, T):
         """
         Update the camera pose, given the camera extrinsics as Rotation Matrix (R) and Translation vector (t)
@@ -715,31 +714,49 @@ class Camera(Plane, nn.Module):
             self.principal_point_pixel[:,0] * self.pixel_size - torch.tensor([self.a/2, self.b/2]), torch.tensor([0.])))[:, None]
         self.get_principal_point_from_aperture()
         
+
     def distort_pixels(self, pixels):
         """
         Lens distortion is based on the radial division model
-        K: Distortion coefficients
+        r: Distortion coefficient
         """
-        radius_sq = pixels[0,:].clone() ** 2 + pixels[1,:].clone() ** 2
-        pixels[0,:] = self.principal_point_pixel[0] + (
-            pixels[0,:] - self.principal_point_pixel[0]
-        ) / (2 * self.K * radius_sq
-        ) * (1 - torch.sqrt(1 - 4 * self.K * radius_sq)
-        )
-        pixels[1,:] = self.principal_point_pixel[1] + (
-            pixels[1,:] - self.principal_point_pixel[1]
-        ) / (2 * self.K * radius_sq
-        ) * (1 - torch.sqrt(1 - 4 * self.K * radius_sq)
+        normalized_pixels = pixels.clone()
+        normalized_pixels = (normalized_pixels - self.principal_point_pixel) / self.focal_length_pixels
+        radius_sq = normalized_pixels[0,:].clone() ** 2 + normalized_pixels[1,:].clone() ** 2
+        normalized_pixels = normalized_pixels / (2 * self.r1 * radius_sq + 1e-16
+        ) * (1 - torch.sqrt(1 - 4 * self.r1 * radius_sq)
         )
         
+        normalized_pixels = (normalized_pixels * self.focal_length_pixels) + self.principal_point_pixel
+        return normalized_pixels
+
+        
     def undistort_pixels(self, pixels):
-        radius_sq = pixels[0,:].clone() ** 2 + pixels[1,:].clone() ** 2
-        pixels[0,:] = self.principal_point_pixel[0] + (
-            pixels[0,:] - self.principal_point_pixel[0]
-        ) / (1 + self.K * radius_sq)
-        pixels[1,:] = self.principal_point_pixel[1] + (
-            pixels[1,:] - self.principal_point_pixel[1]
-        ) / (1 + self.K * radius_sq)
+        """
+        Lens distortion is based on the radial division model
+        r1: Distortion coefficient
+        """
+        normalized_pixels = pixels.clone()
+        normalized_pixels = (normalized_pixels - self.principal_point_pixel) / self.focal_length_pixels
+        radius_sq = normalized_pixels[0,:].clone() ** 2 + normalized_pixels[1,:].clone() ** 2
+        normalized_pixels = normalized_pixels / (1 + self.r1 * radius_sq * 1e-16)
+        normalized_pixels = (normalized_pixels * self.focal_length_pixels) + self.principal_point_pixel
+        return normalized_pixels
+    
+
+    def forward(self, pixel):
+        self.get_principal_point_from_aperture()
+        self.update_camera_center()
+        if not isinstance(pixel, torch.Tensor):
+            pixel = torch.tensor(pixel, dtype=torch.float32)
+            if len(pixel.shape) == 1:
+                pixel = pixel.reshape((2, 1))
+        r = torch.sqrt(torch.sum(pixel ** 2, dim=0))[None, :]
+        pixels = self.pixels_to_world(pixel)
+        aperture = self.aperture.repeat(1, pixels.shape[1]).clone()
+        ray = Ray(origin=pixels, target=aperture)
+        return ray
+
 
 
 def visualize_camera_configuration(camera=None, prism=None, pixels=None, ax=None, fig=None, color_labels=None):
