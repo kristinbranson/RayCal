@@ -15,7 +15,7 @@
 # ---
 
 # %% Imports
-from ray_tracing_simulator_nnModules_grad import Prism, Ray, Plane, ReflectingPlane, RefractingPlane, Camera, Arena, visualize_camera_configuration, closest_point
+from ray_tracing_simulator_nnModules_grad import Prism, Ray, Plane, ReflectingPlane, RefractingPlane, EfficientCamera, Arena, visualize_camera_configuration, closest_point
 import matplotlib.pyplot as plt
 import numpy as np  
 import torch
@@ -55,8 +55,8 @@ def calculate_angle_of_incidence(incident_ray, prism):
     ray_3_angles_bundle = torch.stack([refraction_angle_i*180/pi, 
     refraction_angle_o*180/pi, 
     snells_law_angle*180/pi]).detach().numpy()
-
     return ray_1_angles_bundle, ray_2_angles_bundle, ray_3_angles_bundle
+
 
 def plot_two_camera_figures(ang1, ang2):
     """
@@ -108,8 +108,8 @@ ax.set_aspect('equal', adjustable='datalim')
 # Optical plane refraction
 plane = RefractingPlane(alpha=pi/3, beta=pi/6, gamma=pi/10, center=[0.,0.,0.], a=1., b=1., 
               refractive_idx_1=1., refractive_idx_2=1.5)
-incident_ray = Ray(origin=torch.tensor([-0.5,0.,0.])[:,None], direction=torch.tensor([1.,0.,0.])[:,None])
-refracted_ray = plane(incident_ray)
+incident_ray = Ray(origin=torch.tensor([-0.5,0.,0.])[:,None].to(torch.float64), direction=torch.tensor([1.,0.,0.])[:,None].to(torch.float64))
+refracted_ray, _ = plane(incident_ray)
 fig, ax = plane.visualize()
 fig, ax = incident_ray.visualize(fig=fig, ax=ax)
 _, ax = refracted_ray.visualize(fig=fig, ax=ax)
@@ -118,9 +118,9 @@ ax.set_aspect('equal', adjustable='datalim')
 
 # %% Testing class OpticalPlane with a single ray reflection
 # Optical plane reflection
-plane = ReflectingPlane(alpha=np.pi/3, beta=np.pi/6, gamma=np.pi/10, center=[0.,0.,0.], a=1.,b=1.)
-incident_ray = Ray(origin=torch.tensor([-0.5,0.,0.])[:,None], direction=torch.tensor([1.,0.,0.])[:,None])
-reflected_ray = plane(incident_ray)
+plane = ReflectingPlane(alpha=pi/3, beta=pi/6, gamma=pi/10, center=[0.,0.,0.], a=1.,b=1.)
+incident_ray = Ray(origin=torch.tensor([-0.5,0.,0.])[:,None].to(torch.float64), direction=torch.tensor([1.,0.,0.])[:,None].to(torch.float64))
+reflected_ray, _ = plane(incident_ray)
 fig, ax = plane.visualize()
 fig, ax = incident_ray.visualize(fig=fig, ax=ax)
 _, ax = reflected_ray.visualize(fig=fig, ax=ax)
@@ -134,12 +134,12 @@ n_air = 1.
 prism_alpha = -2.972
 prism_beta = 1.4760
 prism_gamma = 2.0186
-prism_center = np.array([0.,0.,0.])[:, None]
+prism_center = torch.tensor([0.,0.,0.])[:, None].to(torch.float64)
 prism = Prism(prism_size=[20.,20.,20.], prism_angles=[prism_alpha, prism_beta, prism_gamma], 
                 prism_center=prism_center, refractive_index_glass=n_glass, 
                 refractive_index_air=n_air)
-origin_point=torch.tensor([0.,0.6,-0.25])[:,None]
-target_point=torch.tensor([0.,0.37,0.])[:,None]
+origin_point=torch.tensor([0.,0.6,-0.25])[:,None].to(torch.float64)
+target_point=torch.tensor([0.,0.37,0.])[:,None].to(torch.float64)
 ray = Ray(origin=origin_point, target=target_point)
 prism(ray)
 fig, ax = prism.visualize_prism_and_ray(ray)
@@ -177,19 +177,30 @@ ax2.set_zlim(cam_lims[0][2], cam_lims[1][2])
 
 
 # %% Validate real camera rays: Calculate distance of the ray from ground truth 3-D points
-calibration_results_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism/exp_18/results-non-corroded/'
-calibration_results_file = 'ball_bearing_data.mat'
+calibration_results_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/exp_2/results/'
+calibration_results_file = 'dotted_grid_data.mat'
 calibration_results_path = os.path.join(calibration_results_dir, calibration_results_file)
 mat = sio.loadmat(calibration_results_path)
-undistorted_real_pixels = torch.tensor(mat['output_data_cam_0_undistorted'], dtype=torch.float32).T - 1
-target_coordinates = torch.tensor(mat['input_data'], dtype=torch.float32).T
+undistorted_real_pixels = torch.tensor(mat['output_data_cam_0_undistorted'], dtype=torch.float64).T - 1
+target_coordinates = torch.tensor(mat['input_data'], dtype=torch.float64).T
 test_idx = torch.randperm(undistorted_real_pixels.shape[1])
-principal_point_pixel = [638.040 - 1, 492.499 - 1] # This comes from the calibration results
-camera = Camera(principal_point_pixel=principal_point_pixel)
 undistorted_real_pixels = undistorted_real_pixels[:, test_idx] 
 target_coordinates = target_coordinates[:, test_idx]
 print(f'Finished loading calibration results from {calibration_results_path}')
-ray_direct = camera.initialize_ray(undistorted_real_pixels)
+
+stereoParams = mat['stereoParams_export']
+K1 = torch.tensor(stereoParams['CameraParameters1K'][0,0]).to(torch.float64)
+K2 = torch.tensor(stereoParams['CameraParameters2K'][0,0]).to(torch.float64)
+
+principal_point_pixel_cam_0 = torch.tensor([K1[0,2] - 1, K1[1,2] - 1], dtype=torch.float64)[:, None]
+principal_point_pixel_cam_1 = torch.tensor([K2[0,2] - 1, K2[1,2] - 1], dtype=torch.float64)[:, None]
+
+focal_length_cam_1 = (K1[0,0] + K1[1,1]) /  2
+focal_length_cam_2 = (K2[0,0] + K2[1,1]) /  2
+
+camera = EfficientCamera(principal_point_pixel=principal_point_pixel_cam_0,
+                focal_length_pixels=focal_length_cam_1)
+ray_direct = camera(undistorted_real_pixels)
 distance = ray_direct.distance_to_point(target_coordinates)
 print(f'Mean distance error: {distance.mean()}')
 
@@ -197,14 +208,16 @@ print(f'Mean distance error: {distance.mean()}')
 # %% Visualize 'n_sample' rays traced from pixels (single camera)
 num_samples = 10
 test_idx = torch.randperm(undistorted_real_pixels.shape[1])[:num_samples]
-principal_point_pixel=[638.040 - 1, 492.499 - 1]
-camera = Camera(principal_point_pixel=principal_point_pixel)
+principal_point_pixel_cam_0 = torch.tensor([K1[0,2] - 1, K1[1,2] - 1], dtype=torch.float64)[:,None]
+focal_length_cam_1 = (K1[0,0] + K1[1,1]) /  2
+camera = EfficientCamera(principal_point_pixel=principal_point_pixel_cam_0,
+                focal_length_pixels=focal_length_cam_1)
 undistorted_real_pixels = undistorted_real_pixels[:, test_idx]
 target_coordinates = target_coordinates[:, test_idx]
 ray_direct = camera.initialize_ray(undistorted_real_pixels)
 distance = ray_direct.distance_to_point(target_coordinates)
 fig, ax = camera.visualize()
-ray_direct.t *= 160
+ray_direct.t *= 200
 ray_direct.visualize(fig=fig, ax=ax)
 ax.scatter(target_coordinates[0], target_coordinates[1], target_coordinates[2], c='r')
 ax.set_title(f'{num_samples} rays traced from ball bearing centroid projections', fontsize=15)
@@ -212,12 +225,11 @@ ax.set_aspect('equal', adjustable='datalim')
 
 
 # %%  Visualize two cameras, given the rotation and translation matrix of one with respect to the other
-R = torch.tensor([[0.819301743677432, 0.0073199538315673, -0.573315856298274],
-                   [-1.41589415524092e-05, 0.999918760232094, 0.0127464793349662], 
-                   [0.573362583891418, -0.0104350951991858, 0.819235287436729]]).T
-T = torch.tensor([72.8566307938209, -0.980908710814855, 22.7386226749512])[:, None]
-camera1 = Camera(principal_point_pixel=[638.040 - 1, 492.499 - 1])
-camera2 = Camera(principal_point_pixel=[659.37 - 1, 521.507 - 1], focal_length_pixels=5709.3)
+R = torch.tensor(stereoParams['RotationOfCamera2'][0,0]).to(torch.float64)
+T = torch.tensor(stereoParams['TranslationOfCamera2'][0,0]).to(torch.float64).T
+
+camera1 = EfficientCamera(principal_point_pixel=principal_point_pixel_cam_0, focal_length_pixels=focal_length_cam_1)
+camera2 = EfficientCamera(principal_point_pixel=principal_point_pixel_cam_1, focal_length_pixels=focal_length_cam_2)
 camera2.update_camera_pose(R, T)
 fig, ax = camera1.visualize()
 camera2.visualize(fig=fig, ax=ax)
@@ -227,28 +239,28 @@ ax.set_title('Two cameras with a given relative pose', fontsize=15)
 
 # %% Visualize {num_samples} rays from two cameras
 num_samples = 10
-calibration_results_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism/exp_18/results-non-corroded/'
-calibration_results_file = 'ball_bearing_data.mat'
+calibration_results_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/exp_2/results/'
+calibration_results_file = 'dotted_grid_data.mat'
 calibration_results_path = os.path.join(calibration_results_dir, calibration_results_file)
 mat = sio.loadmat(calibration_results_path)
-undistorted_real_pixels_cam_0 = torch.tensor(mat['output_data_cam_0_undistorted'], dtype=torch.float32).T - 1
-undistorted_real_pixels_cam_1 = torch.tensor(mat['output_data_cam_1_undistorted'], dtype=torch.float32).T - 1
-target_coordinates = torch.tensor(mat['input_data'], dtype=torch.float32).T
+undistorted_real_pixels_cam_0 = torch.tensor(mat['output_data_cam_0_undistorted'], dtype=torch.float64).T - 1
+undistorted_real_pixels_cam_1 = torch.tensor(mat['output_data_cam_1_undistorted'], dtype=torch.float64).T - 1
+target_coordinates = torch.tensor(mat['input_data'], dtype=torch.float64).T
 test_idx = torch.randperm(undistorted_real_pixels_cam_0.shape[1])[:num_samples]
-principal_point_pixel_cam_0 = [638.040 - 1, 492.499 - 1] # This comes from the calibration results
-principal_point_pixel_cam_1 = [659.37 - 1, 521.507 - 1] # This comes from the calibration results
-camera1 = Camera(principal_point_pixel=principal_point_pixel_cam_0)
-camera2 = Camera(principal_point_pixel=principal_point_pixel_cam_1, focal_length_pixels=5709.3)
+principal_point_pixel_cam_0 = torch.tensor([K1[0,2] - 1, K1[1,2] - 1], dtype=torch.float64)[:,None]
+principal_point_pixel_cam_1 = torch.tensor([K2[0,2] - 1, K2[1,2] - 1], dtype=torch.float64)[:,None]
+camera1 = EfficientCamera(principal_point_pixel=principal_point_pixel_cam_0)
+camera2 = EfficientCamera(principal_point_pixel=principal_point_pixel_cam_1, focal_length_pixels=5709.3)
 camera2.update_camera_pose(R, T)
 undistorted_real_pixels_cam_0 = undistorted_real_pixels_cam_0[:, test_idx]
 undistorted_real_pixels_cam_1 = undistorted_real_pixels_cam_1[:, test_idx]
 
 target_coordinates = target_coordinates[:, test_idx]
 print(f'Finished loading calibration results from {calibration_results_path}')
-ray_direct_1 = camera1.initialize_ray(undistorted_real_pixels_cam_0)
-ray_direct_1.t *= 160
-ray_direct_2 = camera2.initialize_ray(undistorted_real_pixels_cam_1)
-ray_direct_2.t *= 160
+ray_direct_1 = camera1(undistorted_real_pixels_cam_0)
+ray_direct_1.t *= 200
+ray_direct_2 = camera2(undistorted_real_pixels_cam_1)
+ray_direct_2.t *= 200
 fig, ax = camera1.visualize()
 fig, ax = camera2.visualize(fig=fig, ax=ax)
 fig, ax = ray_direct_1.visualize(fig=fig, ax=ax)
@@ -258,41 +270,42 @@ ax.set_title(f'{num_samples} rays from ball bearing centroid projections on two 
 
 
 # %% Calculate errors for two cameras
-calibration_results_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism/exp_18/results-non-corroded/'
-calibration_results_file = 'ball_bearing_data.mat'
+calibration_results_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/exp_2/results/'
+calibration_results_file = 'dotted_grid_data.mat'
 calibration_results_path = os.path.join(calibration_results_dir, calibration_results_file)
 mat = sio.loadmat(calibration_results_path)
-undistorted_real_pixels_cam_0 = torch.tensor(mat['output_data_cam_0_undistorted'], dtype=torch.float32).T - 1
-undistorted_real_pixels_cam_1 = torch.tensor(mat['output_data_cam_1_undistorted'], dtype=torch.float32).T - 1
-target_coordinates = torch.tensor(mat['input_data'], dtype=torch.float32).T
+undistorted_real_pixels_cam_0 = torch.tensor(mat['output_data_cam_0_undistorted'], dtype=torch.float64).T - 1
+undistorted_real_pixels_cam_1 = torch.tensor(mat['output_data_cam_1_undistorted'], dtype=torch.float64).T - 1
+target_coordinates = torch.tensor(mat['input_data'], dtype=torch.float64).T
 test_idx = torch.randperm(undistorted_real_pixels_cam_0.shape[1])
-principal_point_pixel_cam_0 = [638.040 - 1, 492.499 - 1] # This comes from the calibration results
-principal_point_pixel_cam_1 = [659.3778 - 1, 521.5078 - 1] # This comes from the calibration results
-camera1 = Camera(principal_point_pixel=principal_point_pixel_cam_0,
-                 )
-camera2 = Camera(principal_point_pixel=principal_point_pixel_cam_1, 
-                 focal_length_pixels=5709.3,
+principal_point_pixel_cam_0 = torch.tensor([K1[0,2] - 1, K1[1,2] - 1], dtype=torch.float64)[:,None]
+principal_point_pixel_cam_1 = torch.tensor([K2[0,2] - 1, K2[1,2] - 1], dtype=torch.float64)[:,None]
+camera1 = EfficientCamera(principal_point_pixel=principal_point_pixel_cam_0,
+                 focal_length_pixels=focal_length_cam_1)
+camera2 = EfficientCamera(principal_point_pixel=principal_point_pixel_cam_1, 
+                 focal_length_pixels=focal_length_cam_2,
                  )
 camera2.update_camera_pose(R, T)
-undistorted_real_pixels_cam_0 = undistorted_real_pixels_cam_0[:, test_idx]
-undistorted_real_pixels_cam_1 = undistorted_real_pixels_cam_1[:, test_idx]
+undistorted_real_pixels_cam_0_test = undistorted_real_pixels_cam_0[:, test_idx]
+undistorted_real_pixels_cam_1_test = undistorted_real_pixels_cam_1[:, test_idx]
 
-target_coordinates = target_coordinates[:, test_idx]
+target_coordinates_test = target_coordinates[:, test_idx]
 print(f'Finished loading calibration results from {calibration_results_path}')
-ray_direct_1 = camera1.initialize_ray(undistorted_real_pixels_cam_0)
-ray_direct_2 = camera2.initialize_ray(undistorted_real_pixels_cam_1)
-distance1 = ray_direct_1.distance_to_point(target_coordinates)
-distance2 = ray_direct_2.distance_to_point(target_coordinates)
+ray_direct_1 = camera1(undistorted_real_pixels_cam_0_test)
+ray_direct_2 = camera2(undistorted_real_pixels_cam_1_test)
+distance1 = ray_direct_1.distance_to_point(target_coordinates_test)
+distance2 = ray_direct_2.distance_to_point(target_coordinates_test)
 # Closest approach
 recon_3D, lines_distance = closest_point(ray_direct_1, ray_direct_2)
-recon_3D_error = torch.norm(recon_3D - target_coordinates, dim=0)
+recon_3D_error = torch.norm(recon_3D - target_coordinates_test, dim=0)
 print(f'Mean distance error for camera 1: {distance1.mean()}')
 print(f'Mean distance error for camera 2: {distance2.mean()}')
 print(f'Mean distance error for closest approach: {recon_3D_error.mean()}')
 
-reprojected_pixels_cam_0 = camera1.reproject_using_intrinsics(recon_3D)
+reprojected_pixels_cam_0 = camera1.reproject(recon_3D, R=torch.eye(3).to(torch.float64),
+                                              T=torch.zeros(3,1).to(torch.float64))
 reprojection_error = torch.linalg.norm(
-    reprojected_pixels_cam_0 - undistorted_real_pixels_cam_0, 
+    reprojected_pixels_cam_0 - undistorted_real_pixels_cam_0_test, 
     dim=0).mean()
 
 # Reprojection error for Camera 1
@@ -304,8 +317,8 @@ principal_point_pixel_cam_1 = [659.3778 - 1, 521.5078 - 1]
 
 R = torch.tensor([[0.819301743677432, 0.0073199538315673, -0.573315856298274],
                    [-1.41589415524092e-05, 0.999918760232094, 0.0127464793349662], 
-                   [0.573362583891418, -0.0104350951991858, 0.819235287436729]]).T
-T = torch.tensor([72.8566307938209, -0.980908710814855, 22.7386226749512])[:, None]
+                   [0.573362583891418, -0.0104350951991858, 0.819235287436729]]).T.to(torch.float64)
+T = torch.tensor([72.8566307938209, -0.980908710814855, 22.7386226749512])[:, None].to(torch.float64)
 
 focal_length_cam_1 = 5696.3
 focal_length_cam_2 = 5709.3
@@ -324,8 +337,8 @@ prism_angles = torch.tensor([0., 0., 0.]))
 # %% Check if refraction and reflection works as intended
 import matplotlib.pyplot as plt
 
-undistorted_real_pixels_cam_0 = torch.tensor(mat['output_data_cam_0_undistorted'], dtype=torch.float32).T - 1
-undistorted_real_pixels_cam_1 = torch.tensor(mat['output_data_cam_1_undistorted'], dtype=torch.float32).T - 1
+undistorted_real_pixels_cam_0 = torch.tensor(mat['output_data_cam_0_undistorted'], dtype=torch.float64).T - 1
+undistorted_real_pixels_cam_1 = torch.tensor(mat['output_data_cam_1_undistorted'], dtype=torch.float64).T - 1
 camera1 = Camera(principal_point_pixel=principal_point_pixel_cam_0)
 camera2 = Camera(principal_point_pixel=principal_point_pixel_cam_1, focal_length_pixels=5709.3)
 camera2.update_camera_pose(R, T)

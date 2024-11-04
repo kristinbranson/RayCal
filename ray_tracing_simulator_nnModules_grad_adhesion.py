@@ -381,7 +381,12 @@ class Plane(nn.Module):
         ray_t = torch.mm((self.center - ray.origin).T, self.axes[:,0].unsqueeze(-1)) / torch.mm(ray.direction.T, self.axes[:,0].unsqueeze(-1))
         ray.t = ray_t.clone().detach()
         intersection = ray.origin + ray_t.t() * ray.direction
-        return intersection
+        d_intersection = intersection - self.center        
+        distance_horizontal = torch.mm(self.axes[:,1][:,None].T, d_intersection)
+        distance_vertical = torch.mm(self.axes[:,2][:,None].T, d_intersection)
+        intersection_penalty = torch.cat((distance_horizontal - self.a / 2, distance_vertical - self.b / 2), dim=0)
+        intersection_penalty = torch.sum(torch.relu(intersection_penalty)**2, dim=0)
+        return intersection, intersection_penalty
 
     def rotate_sides(self, side1=None, side2=None, side3=None, side4=None, alpha=None, beta=None, gamma=None, rot_mat=None):
         """
@@ -529,7 +534,7 @@ class RefractingPlane(Plane, nn.Module):
         if self.center.dtype != ray.origin.dtype:
             self.center = self.center.to(ray.origin.dtype)
             
-        intersection = self.get_intersection(ray)
+        intersection, intersection_penalty = self.get_intersection(ray)
         
         refractive_idx_1 = self.refractive_idx_1
         refractive_idx_2 = self.refractive_idx_2
@@ -561,7 +566,7 @@ class RefractingPlane(Plane, nn.Module):
         refracted_ray_direction = normal_component * self.axes[:,0].unsqueeze(-1) * normal_multiplier + incident_ray_component * ray.direction
         refracted_ray_direction[:, bad_rays_mask[0]] = 0. * refracted_ray_direction[:, bad_rays_mask[0]]
         refracted_ray = Ray(origin=intersection, direction=refracted_ray_direction)
-        return refracted_ray
+        return refracted_ray, intersection_penalty
 
 #%% class ReflectingPlane
 class ReflectingPlane(Plane, nn.Module):
@@ -574,7 +579,7 @@ class ReflectingPlane(Plane, nn.Module):
         bad_rays_mask = ~(torch.linalg.vector_norm(ray.direction, dim=0) > 1e-1)
         if self.center.dtype != ray.origin.dtype:
             self.center = self.center.to(ray.origin.dtype)
-        intersection = self.get_intersection(ray)
+        intersection, intersection_penalty = self.get_intersection(ray)
         #normal = self.angles_to_normal(alpha=self.alpha, beta=self.beta, gamma=self.gamma)
         cosi = torch.mm(ray.direction.T, self.axes[:,0].unsqueeze(-1)).T
         normal_multiplier = torch.ones(cosi.shape)
@@ -586,7 +591,7 @@ class ReflectingPlane(Plane, nn.Module):
         reflected_ray_direction = reflected_ray_direction / torch.linalg.vector_norm(reflected_ray_direction, dim=0)
         reflected_ray_direction[:, bad_rays_mask[0]] = 0. * reflected_ray_direction[:, bad_rays_mask[0]]
         reflected_ray = Ray(origin=intersection, direction=reflected_ray_direction)
-        return reflected_ray    
+        return reflected_ray, intersection_penalty 
         
 
 #%% Camera  class
@@ -871,11 +876,12 @@ class Prism(nn.Module):
 
     def forward(self, incident_ray):
         plane1, plane2, plane3, plane4 = self.get_planes(self.prism_center, self.prism_angles)
-        ray1 = plane1(incident_ray)
-        ray2 = plane2(ray1)
-        ray3 = plane3(ray2)
-        ray4 = plane4(ray3)
-        return ray1, ray2, ray3, ray4
+        ray1, intersection_penalty_1 = plane1(incident_ray)
+        ray2, intersection_penalty_2 = plane2(ray1)
+        ray3, intersection_penalty_3 = plane3(ray2)
+        ray4, intersection_penalty_4 = plane2(ray3)
+        ray5, intersection_penalty_5 = plane4(ray4)
+        return ray1, ray2, ray3, ray4, ray5, intersection_penalty_1 + intersection_penalty_2 + intersection_penalty_3 + intersection_penalty_4 + intersection_penalty_5
     
     def visualize_prism(self, fig=None, ax=None):
         if fig is None:

@@ -9,8 +9,8 @@ from config import Config
 from scipy.spatial.transform import Rotation as R
 import torch
 import torch.nn as nn
-mpl.use('TkAgg') # Use this if working on the PC
-#mpl.use('QtAgg') # Use this if working remotely with NoMachine
+#mpl.use('TkAgg') # Use this if working on the PC
+mpl.use('QtAgg') # Use this if working remotely with NoMachine
 plt.ion()
 
 pi = torch.tensor(np.pi)
@@ -808,7 +808,6 @@ class ReflectingPlane(Plane, nn.Module):
         reflected_ray.direction = reflected_ray.direction / torch.linalg.vector_norm(reflected_ray.direction, dim=0)
         reflected_ray.direction[:, bad_rays_mask[0]] = 0.
         return reflected_ray
-
 
 
 

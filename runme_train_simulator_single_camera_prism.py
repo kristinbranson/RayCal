@@ -48,10 +48,10 @@ if load_checkpoint:
 os.makedirs(model_checkpoint_dir, exist_ok=True)
 
 mat = sio.loadmat(calibration_results_path)
-virtual_pixels_cam_0 = torch.tensor(mat['output_data_cam_02'], dtype=torch.float64, requires_grad=True).T - 1.
-virtual_pixels_cam_1 = torch.tensor(mat['output_data_cam_13'], dtype=torch.float64, requires_grad=True).T - 1.
-undistorted_real_pixels_cam_0 = torch.tensor(mat['output_data_cam_0'], dtype=torch.float64).T - 1.
-undistorted_real_pixels_cam_1 = torch.tensor(mat['output_data_cam_1'], dtype=torch.float64).T - 1.
+virtual_pixels_cam_0 = torch.tensor(mat['output_data_cam_02_undistorted'], dtype=torch.float64, requires_grad=True).T - 1.
+virtual_pixels_cam_1 = torch.tensor(mat['output_data_cam_13_undistorted'], dtype=torch.float64, requires_grad=True).T - 1.
+undistorted_real_pixels_cam_0 = torch.tensor(mat['output_data_cam_0_undistorted'], dtype=torch.float64).T - 1.
+undistorted_real_pixels_cam_1 = torch.tensor(mat['output_data_cam_1_undistorted'], dtype=torch.float64).T - 1.
 target_coordinates = torch.tensor(mat['input_data'], dtype=torch.float64).T
 
 stereoParams = mat['stereoParams_export']
@@ -136,6 +136,7 @@ arena = Arena_reprojection_loss_single_camera(principal_point_pixel_cam_0,
             T, 
             prism_angles=prism_angles,
             prism_center=prism1_center)
+#freeze_camera_parameters(arena.camera1)
 pixels_virtual_two_cams = torch.vstack((virtual_pixels_cam_0, virtual_pixels_cam_1))
 pixels_real_two_cams = torch.vstack((undistorted_real_pixels_cam_0, undistorted_real_pixels_cam_1))
 
@@ -214,7 +215,6 @@ def validate(model, val_loader, criterion):
         for input, label_2D, label_3D in val_loader:
             _, closest_distance, recon_distorted_pixels_1, int_penalty_1, dist_penalty_1 = model(input.T, label_2D.T)
 
-
             recon_real_loss = euclidean_distance(
                 recon_distorted_pixels_1, 
                 label_2D[:,:2].T).sum() 
@@ -261,7 +261,7 @@ pixels_virtual_two_cams_train, pixels_virtual_two_cams_val = random_split(
 train_loader = DataLoader(pixels_virtual_two_cams_train, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(pixels_virtual_two_cams_val, batch_size=batch_size, shuffle=False)
 
-num_epochs = 400
+num_epochs = 6000
 optimizer = optim.Adam(arena.parameters(), lr=5e-3
                        )
 criterion = torch.nn.MSELoss()
@@ -294,12 +294,15 @@ best_loss = 1e100
 #%%
 plot = False
 for epoch in tqdm(range(num_epochs)):
-    if epoch == 100:
+    if epoch == 75:
         for param_group in optimizer.param_groups:
-            param_group['lr'] = 1e-3
+            param_group['lr'] = 2e-3
     if epoch == 300:
         for param_group in optimizer.param_groups:
-            param_group['lr'] = 1e-4
+            param_group['lr'] = 1e-3
+    if epoch == 2000:
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = 5e-4
     train_loss, train_virtual_loss, train_real_loss, train_closest_dist_loss, train_distortion_loss, train_intersection_loss = train_two_cams(model=arena, 
                     train_loader=train_loader, 
                     criterion=criterion,
@@ -311,7 +314,7 @@ for epoch in tqdm(range(num_epochs)):
     plot = False
     if epoch % 10 == 0:
         print(f'Training loss for epoch {epoch}: train_loss: {train_loss}, closest_dist_loss: {train_closest_dist_loss}, distortion_loss: {train_distortion_loss}, intersection_loss: {train_intersection_loss}, real_loss: {train_real_loss}')
-        if epoch % 200 == 0:
+        if epoch % 1000 == 0:
             plot = True
     train_loss_array.append(train_loss)
     train_virtual_loss_array.append(train_virtual_loss)

@@ -35,7 +35,7 @@ class CalibrationDataset(Dataset):
 #%% Load camera calibration results
 load_checkpoint = False
 calibration_results_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/exp_2/results/'
-calibration_results_file = 'dotted_grid_data.mat'
+calibration_results_file = 'dotted_grid_pairwise_data.mat'
 calibration_results_path = os.path.join(calibration_results_dir, calibration_results_file)
 outputs_dir = 'outputs'
 os.makedirs(outputs_dir, exist_ok=True)
@@ -46,11 +46,11 @@ if load_checkpoint:
 os.makedirs(model_checkpoint_dir, exist_ok=True)
 
 mat = sio.loadmat(calibration_results_path)
-virtual_pixels_cam_0 = torch.tensor(mat['output_data_cam_02'], dtype=torch.float64, requires_grad=True).T - 1.
-virtual_pixels_cam_1 = torch.tensor(mat['output_data_cam_13'], dtype=torch.float64, requires_grad=True).T - 1.
-undistorted_real_pixels_cam_0 = torch.tensor(mat['output_data_cam_0'], dtype=torch.float64).T - 1.
-undistorted_real_pixels_cam_1 = torch.tensor(mat['output_data_cam_1'], dtype=torch.float64).T - 1.
-target_coordinates = torch.tensor(mat['input_data'], dtype=torch.float64).T
+virtual_pixels_cam_0 = torch.tensor(mat['output_data_cam_02_pairwise'], dtype=torch.float64, requires_grad=True).T - 1.
+virtual_pixels_cam_1 = torch.tensor(mat['output_data_cam_13_pairwise'], dtype=torch.float64, requires_grad=True).T - 1.
+undistorted_real_pixels_cam_0 = torch.tensor(mat['output_data_cam_0_pairwise'], dtype=torch.float64).T - 1.
+undistorted_real_pixels_cam_1 = torch.tensor(mat['output_data_cam_1_pairwise'], dtype=torch.float64).T - 1.
+target_coordinates = torch.tensor(mat['worldPoints_pairwise'], dtype=torch.float64).T
 stereoParams = mat['stereoParams_export']
 K1 = torch.tensor(stereoParams['CameraParameters1K'][0,0]).to(torch.float64)
 K2 = torch.tensor(stereoParams['CameraParameters2K'][0,0]).to(torch.float64)

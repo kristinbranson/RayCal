@@ -55,7 +55,7 @@ R = torch.tensor([[0.819301743677432, 0.0073199538315673, -0.573315856298274],
                    [0.573362583891418, -0.0104350951991858, 0.819235287436729]]).T
 T = torch.tensor([72.8566307938209, -0.980908710814855, 22.7386226749512])[:, None]
 focal_length_cam_1 = 5696.3 # in pixels
-focal_length_cam_2 = 5790.3 # in pixels
+focal_length_cam_2 = 5709.3 # in pixels
 
 
 #%% Freeze parameters
@@ -349,7 +349,6 @@ recon_3D_test, closest_dist_test, _, _, _, _ = arena(pixels_virtual_two_cams_tes
 test_loss = torch.norm(recon_3D_test - target_coordinates_test, 
         p=2, 
         dim=0).mean()
-
 
 print(f'Test loss: {test_loss}')
 cameraMatrix1 = torch.tensor([[5696.3, 0., 638.040, 0.], [0, 5696.3 , 492.499, 0.], [0., 0., 1., 0.]])

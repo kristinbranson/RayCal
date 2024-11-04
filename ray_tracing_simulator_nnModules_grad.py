@@ -650,11 +650,11 @@ class Camera(Plane, nn.Module):
         self.principal_point = None
         self.get_principal_point_from_aperture()
         self.principal_point_pixel = principal_point_pixel
-        self.r1 = r1 # Radial distortion parameter
-        self.r1d = nn.Parameter(torch.tensor(0., dtype=torch.float64))
-        self.r2d = nn.Parameter(torch.tensor(0., dtype=torch.float64))
-        self.r1u = nn.Parameter(torch.tensor(0., dtype=torch.float64))
-        self.r2u = nn.Parameter(torch.tensor(0., dtype=torch.float64))
+        self.r1 = nn.Parameter(torch.tensor(r1).to(torch.float64), requires_grad=True) # Radial distortion parameter
+        self.r1d = nn.Parameter(torch.tensor(0., dtype=torch.float64), requires_grad=True)
+        self.r2d = nn.Parameter(torch.tensor(0., dtype=torch.float64), requires_grad=True)
+        self.r1u = nn.Parameter(torch.tensor(0., dtype=torch.float64), requires_grad=True)
+        self.r2u = nn.Parameter(torch.tensor(0., dtype=torch.float64), requires_grad=True)
         self.update_camera_center()
         #self.dist_layer = nn.Linear(2,2, dtype=torch.float64)
         #self.undist_layer = nn.Linear(2,2, dtype=torch.float64)
@@ -857,11 +857,11 @@ class EfficientCamera(Plane, nn.Module):
         self.principal_point = None
         self.get_principal_point_from_aperture()
         self.principal_point_pixel = principal_point_pixel
-        self.r1 = r1 # Radial distortion parameter
-        self.r1d = nn.Parameter(torch.tensor(0., dtype=torch.float64))
-        self.r2d = nn.Parameter(torch.tensor(0., dtype=torch.float64))
-        self.r1u = nn.Parameter(torch.tensor(0., dtype=torch.float64))
-        self.r2u = nn.Parameter(torch.tensor(0., dtype=torch.float64))
+        self.r1 = nn.Parameter(torch.tensor(r1), requires_grad=True) # Radial distortion parameter
+        self.r1d = nn.Parameter(torch.tensor(0., dtype=torch.float64), requires_grad=False)
+        self.r2d = nn.Parameter(torch.tensor(0., dtype=torch.float64), requires_grad=False)
+        self.r1u = nn.Parameter(torch.tensor(0., dtype=torch.float64), requires_grad=False)
+        self.r2u = nn.Parameter(torch.tensor(0., dtype=torch.float64), requires_grad=False)
         self.update_camera_center()
         #self.dist_layer = nn.Linear(2,2, dtype=torch.float64)
         #self.undist_layer = nn.Linear(2,2, dtype=torch.float64)
