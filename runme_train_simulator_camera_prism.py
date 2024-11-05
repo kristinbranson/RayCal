@@ -163,6 +163,7 @@ def train_two_cams(model, train_loader, criterion, plot=False):
     total_loss = 0.
     distortion_loss = 0.
     intersection_loss = 0.
+    tr_loss = 0.
     
     with torch.autograd.set_detect_anomaly(True):
         # Iterate over minibatches
@@ -171,7 +172,7 @@ def train_two_cams(model, train_loader, criterion, plot=False):
         for input, label_2D, label_3D in train_loader:         
             num_examples = input.shape[0]       
             optimizer.zero_grad()
-            _, closest_distance, recon_pixels_1, recon_pixels_2, recon_distorted_virtual_pixels_1, recon_distorted_virtual_pixels_2, recon_distorted_real_pixels_1, recon_distorted_real_pixels_2, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2 = model(
+            recon_3D, closest_distance, recon_pixels_1, recon_pixels_2, recon_distorted_virtual_pixels_1, recon_distorted_virtual_pixels_2, recon_distorted_real_pixels_1, recon_distorted_real_pixels_2, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2 = model(
                 input.T,
                 label_2D.T)
             
@@ -222,13 +223,18 @@ def train_two_cams(model, train_loader, criterion, plot=False):
                 label_2D[:,:2].T).sum() + euclidean_distance(
                 recon_pixels_2,
                 label_2D[:,2:].T).sum()) / 2
+
+            triangulation_loss = euclidean_distance(
+                                    recon_3D, label_3D.T
+                                ).sum()
             
             distortion_loss = dist_penalty_1.sum() + dist_penalty_2.sum()
             intersection_loss = int_penalty_1.sum() + int_penalty_2.sum()
             closest_distance_loss = closest_distance.sum()
+            tr_loss += triangulation_loss.item()
 
             # Recon_real_loss is the pixel error between the reprojected 3D point from real pixels and the real pixel
-            loss = recon_camwise_loss + 0*recon_real_loss + 0*recon_virtual_loss + (1e2 * intersection_loss) + distortion_loss + closest_distance_loss
+            loss = recon_camwise_loss + 0*recon_real_loss + 0*recon_virtual_loss + (1e2 * intersection_loss) + distortion_loss + closest_distance_loss + 2 * triangulation_loss 
             loss.backward()
             optimizer.step()
 
@@ -239,7 +245,7 @@ def train_two_cams(model, train_loader, criterion, plot=False):
             distortion_loss += distortion_loss.item()
             intersection_loss += intersection_loss.item()
             
-    return total_loss / len(train_loader.dataset), virtual_loss / len(train_loader.dataset), real_loss / len(train_loader.dataset), closest_dist_loss / len(train_loader.dataset), distortion_loss / len(train_loader.dataset), intersection_loss / len(train_loader.dataset)
+    return total_loss / len(train_loader.dataset), virtual_loss / len(train_loader.dataset), real_loss / len(train_loader.dataset), closest_dist_loss / len(train_loader.dataset), distortion_loss / len(train_loader.dataset), intersection_loss / len(train_loader.dataset), tr_loss / len(train_loader.dataset)
 
 
 def train_one_cam(model, pixels):
@@ -259,10 +265,11 @@ def validate(model, val_loader, criterion):
     total_loss = 0.
     distortion_loss = 0.
     intersection_loss = 0.
+    tr_loss = 0.
     num_batches = 0
     with torch.no_grad():
         for input, label_2D, label_3D in val_loader:
-            _, closest_distance, recon_pixels_1, recon_pixels_2, recon_distorted_virtual_pixels_1, recon_distorted_virtual_pixels_2, recon_distorted_real_pixels_1, recon_distorted_real_pixels_2, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2 = model(input.T, label_2D.T)
+            recon_3D, closest_distance, recon_pixels_1, recon_pixels_2, recon_distorted_virtual_pixels_1, recon_distorted_virtual_pixels_2, recon_distorted_real_pixels_1, recon_distorted_real_pixels_2, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2 = model(input.T, label_2D.T)
 
             recon_pixels = torch.cat((recon_distorted_virtual_pixels_1,
             recon_distorted_virtual_pixels_2), dim=0)
@@ -285,6 +292,10 @@ def validate(model, val_loader, criterion):
                 label_2D[:,:2].T).sum() + euclidean_distance(
                 recon_pixels_2,
                 label_2D[:,2:].T).sum()) / 2
+            
+            triangulation_loss = euclidean_distance(
+                                    recon_3D, label_3D.T
+                                ).sum()
 
             distortion_loss = dist_penalty_1.sum() + dist_penalty_2.sum()
             intersection_loss = int_penalty_1.sum() + int_penalty_2.sum()
@@ -298,8 +309,9 @@ def validate(model, val_loader, criterion):
             intersection_loss += intersection_loss.item()
             distortion_loss += distortion_loss.item()
             closest_dist_loss += closest_distance_loss.item()
+            tr_loss += triangulation_loss.item()
 
-    return total_loss / len(val_loader.dataset), virtual_loss / len(val_loader.dataset), real_loss / len(val_loader.dataset), closest_dist_loss / len(val_loader.dataset), distortion_loss / len(val_loader.dataset), intersection_loss / len(val_loader.dataset)
+    return total_loss / len(val_loader.dataset), virtual_loss / len(val_loader.dataset), real_loss / len(val_loader.dataset), closest_dist_loss / len(val_loader.dataset), distortion_loss / len(val_loader.dataset), intersection_loss / len(val_loader.dataset), tr_loss / len(val_loader.dataset)
 
 
 #%% Visualize arena initialization
@@ -328,7 +340,7 @@ pixels_virtual_two_cams_train, pixels_virtual_two_cams_val = random_split(
 train_loader = DataLoader(pixels_virtual_two_cams_train, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(pixels_virtual_two_cams_val, batch_size=batch_size, shuffle=False)
 
-num_epochs = 1000
+num_epochs = 2000
 optimizer = optim.Adam(arena.parameters(), lr=1e-3
                        )
 criterion = torch.nn.MSELoss()
@@ -362,11 +374,11 @@ plot = False
 for epoch in tqdm(range(num_epochs)):
     if epoch == 300:
         for param_group in optimizer.param_groups:
-            param_group['lr'] = 5e-4
+            param_group['lr'] = 5e-3
     if epoch == 400:
         for param_group in optimizer.param_groups:
             param_group['lr'] = 2e-4
-    train_loss, train_virtual_loss, train_real_loss, train_closest_dist_loss, train_distortion_loss, train_intersection_loss = train_two_cams(model=arena, 
+    train_loss, train_virtual_loss, train_real_loss, train_closest_dist_loss, train_distortion_loss, train_intersection_loss, triangulation_loss = train_two_cams(model=arena, 
                     train_loader=train_loader, 
                     criterion=criterion,
                     plot=plot
@@ -376,7 +388,7 @@ for epoch in tqdm(range(num_epochs)):
         plt.title(f'Epoch {epoch}')
     plot = False
     if epoch % 10 == 0:
-        print(f'Training loss for epoch {epoch}: train_loss: {train_loss}, closest_dist_loss: {train_closest_dist_loss}')
+        print(f'Training loss for epoch {epoch}: train_loss: {train_loss}, closest_dist_loss: {train_closest_dist_loss}, triangulation loss : {triangulation_loss}')
         if epoch % 200 == 0:
             plot = True
     train_loss_array.append(train_loss)
@@ -386,13 +398,13 @@ for epoch in tqdm(range(num_epochs)):
     train_distortion_loss_array.append(train_distortion_loss)
     train_intersection_loss_array.append(train_intersection_loss)
 
-    val_loss, val_virtual_loss, val_real_loss, val_closest_dist_loss, val_distortion_loss,val_intersection_loss = validate(model=arena,
+    val_loss, val_virtual_loss, val_real_loss, val_closest_dist_loss, val_distortion_loss,val_intersection_loss, triangulation_loss = validate(model=arena,
              val_loader=val_loader,
              criterion=criterion,
              )
     
     if epoch % 10 == 0:
-        print(f'Validation loss for epoch {epoch}: val_loss: {val_loss}, closest_dist_loss: {val_closest_dist_loss}')
+        print(f'Validation loss for epoch {epoch}: val_loss: {val_loss}, closest_dist_loss: {val_closest_dist_loss}, triangulation loss {triangulation_loss}')
         # Save checkpoint
         torch.save({
                     'epoch': epoch,  # Save the current epoch
@@ -408,6 +420,8 @@ for epoch in tqdm(range(num_epochs)):
                     'optimizer_state_dict': optimizer.state_dict(),
                     'loss': train_loss,
                 }, f'{model_checkpoint_dir}/best_checkpoint.pth')
+    gt_train_loss_array.append(train_loss)
+    gt_val_loss_array.append(val_loss)
 
 
 
@@ -418,7 +432,7 @@ checkpoint = torch.load(PATH, weights_only=True)
 arena.load_state_dict(checkpoint['model_state_dict'])
 # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
-recon_3D_test, closest_dist_test, recon_distorted_virtual_pixels_1, recon_distorted_virtual_pixels_2, recon_distorted_real_pixels_1, recon_distorted_real_pixels_2, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2 = arena(pixels_virtual_two_cams_test, 
+recon_3D_test, closest_dist_test, recon_distorted_virtual_pixels_1, recon_distorted_virtual_pixels_2, recon_distorted_real_pixels_1, recon_distorted_real_pixels_2, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2, _, _ = arena(pixels_virtual_two_cams_test, 
                                                         pixels_real_two_cams_test)
 triangulation_loss = euclidean_distance(
     recon_3D_test, target_coordinates_test
@@ -471,15 +485,16 @@ plt.savefig(f'{model_checkpoint_dir}/reprojection_error.png')
 #%% Test loss
 #%% Make plots after training
 plt.figure()
-plt.plot(gt_train_loss_array, color='b', 
+epochs = np.arange(0,num_epochs)
+plt.plot(epochs,gt_train_loss_array, color='b', 
          label='Ground truth train loss')
-plt.plot(closest_distance_train_loss_array, 
+plt.plot(epochs,closest_distance_train_loss_array, 
          color='r', 
          label='Closest distance train loss')
-plt.plot(gt_val_loss_array, color='b', 
+plt.plot(epochs, gt_val_loss_array, color='b', 
          label='Ground truth val loss',
          linestyle='--')
-plt.plot(closest_distance_val_loss_array, 
+plt.plot(epochs, closest_distance_val_loss_array, 
          color='r', 
          label='Closest distance val loss',
          linestyle='--')

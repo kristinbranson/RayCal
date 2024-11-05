@@ -13,8 +13,8 @@ import os
 import scipy.io as sio
 import torch.nn as nn
 from utils import euclidean_distance
-mpl.use('TkAgg') # Use this if working on the PC
-#mpl.use('QtAgg') # Use this if working remotely with NoMachine
+#mpl.use('TkAgg') # Use this if working on the PC
+mpl.use('QtAgg') # Use this if working remotely with NoMachine
 plt.ion()
 
 pi = torch.tensor(np.pi).to(torch.float64)
@@ -326,16 +326,6 @@ class Plane(nn.Module):
         self.axes = torch.mm(rot_mat, self.axes)
         self.center = torch.mm(rot_mat, self.center)
 
-
-    """
-    def update_angles_after_rotation(self):
-        ref_axes = self.axes
-        self.gamma = torch.arctan2(ref_axes[1,0], ref_axes[0,0])
-        ref_axes1 = torch.mm(rotz(-self.gamma), ref_axes)
-        self.beta = torch.arctan2(-ref_axes1[2,0], ref_axes1[0,0])
-        ref_axes2 = torch.mm(roty(-self.beta), ref_axes1)
-        self.alpha = torch.arctan2(ref_axes2[2,1], ref_axes2[1,1])
-    """ 
         
     def move_plane(self, displacement):
         self.center = self.center + displacement
@@ -857,7 +847,7 @@ class EfficientCamera(Plane, nn.Module):
         self.principal_point = None
         self.get_principal_point_from_aperture()
         self.principal_point_pixel = principal_point_pixel
-        self.r1 = nn.Parameter(torch.tensor(r1), requires_grad=True) # Radial distortion parameter
+        self.r1 = r1 # Radial distortion parameter
         self.r1d = nn.Parameter(torch.tensor(0., dtype=torch.float64), requires_grad=False)
         self.r2d = nn.Parameter(torch.tensor(0., dtype=torch.float64), requires_grad=False)
         self.r1u = nn.Parameter(torch.tensor(0., dtype=torch.float64), requires_grad=False)
@@ -1090,15 +1080,12 @@ class Prism(nn.Module):
         self.refractive_index_glass = refractive_index_glass
         self.refractive_index_air = refractive_index_air
 
-
-    def get_planes(self, prism_center, prism_angles):
-       
+    def get_planes(self, prism_center, prism_angles):       
         prism_alpha, prism_beta, prism_gamma = prism_angles
         rot_mat = get_rot_mat(prism_alpha, prism_beta, prism_gamma)
         axes1 = torch.mm(rot_mat, 
                             torch.tensor([[1.,0.,0.], [0.,1.,0.], [0.,0.,1.]], dtype=torch.float64).t()
-                            )
-        
+                            )        
         plane1 = RefractingPlane(
                             refractive_idx_1=self.refractive_index_air,
                             refractive_idx_2=self.refractive_index_glass,
@@ -1121,7 +1108,6 @@ class Prism(nn.Module):
                             )
         
         axes2 = torch.mm(rot_mat, axes_135)
-
         plane2_center = plane1.center - plane1.axes[:,0].unsqueeze(-1) * self.prism_size[1] / 2
         plane2 = ReflectingPlane(
                             axes=axes2,
