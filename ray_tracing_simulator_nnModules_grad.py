@@ -646,8 +646,23 @@ class Camera(Plane, nn.Module):
         self.r1u = nn.Parameter(torch.tensor(0., dtype=torch.float64), requires_grad=True)
         self.r2u = nn.Parameter(torch.tensor(0., dtype=torch.float64), requires_grad=True)
         self.update_camera_center()
-        #self.dist_layer = nn.Linear(2,2, dtype=torch.float64)
-        #self.undist_layer = nn.Linear(2,2, dtype=torch.float64)
+        input_size = 1
+        hidden_size = 4
+        output_size = 1
+        self.dist_layer = nn.Sequential(
+            nn.Linear(input_size, hidden_size, dtype=torch.float64),  # First layer
+            nn.ReLU(),                           # Activation function
+            nn.Linear(hidden_size, hidden_size, dtype=torch.float64),
+            nn.ReLU(),
+            nn.Linear(hidden_size, output_size, dtype=torch.float64),  # Output layer
+        )
+        self.undist_layer = nn.Sequential(
+            nn.Linear(input_size, hidden_size, dtype=torch.float64),  # First layer
+            nn.ReLU(),                           # Activation function
+            nn.Linear(hidden_size, hidden_size, dtype=torch.float64),
+            nn.ReLU(),
+            nn.Linear(hidden_size, output_size, dtype=torch.float64),  # Output layer
+        )
                 
         # Plane (defining the camera) center should be shifted so that the principal point is along the normal plane through the aperture
         #delta_principal_point = torch.tensor(
@@ -744,8 +759,8 @@ class Camera(Plane, nn.Module):
         normalized_pixels = (normalized_pixels - self.principal_point_pixel) / self.focal_length_pixels
         radius_sq = normalized_pixels[0,:].clone() ** 2 + normalized_pixels[1,:].clone() ** 2
         #normalized_pixels = self.dist_layers(normalized_pixels.T).T
-        #normalized_pixels = normalized_pixels * (1 + self.dist_layers(radius_sq[:, None])).T
-        normalized_pixels = normalized_pixels * (1 + radius_sq * self.r1d + radius_sq ** 2 * self.r2d)
+        normalized_pixels = normalized_pixels * (1 + self.dist_layers(radius_sq[:, None])).T
+        #normalized_pixels = normalized_pixels * (1 + radius_sq * self.r1d + radius_sq ** 2 * self.r2d)
         normalized_pixels = (normalized_pixels * self.focal_length_pixels) + self.principal_point_pixel
         return normalized_pixels
     
@@ -755,8 +770,8 @@ class Camera(Plane, nn.Module):
         normalized_pixels = (normalized_pixels - self.principal_point_pixel) / self.focal_length_pixels
         radius_sq = normalized_pixels[0,:].clone() ** 2 + normalized_pixels[1,:].clone() ** 2
         #normalized_pixels = self.undist_layers(normalized_pixels.T).T
-        #normalized_pixels = normalized_pixels * (1 + self.undist_layers(radius_sq[:, None])).T
-        normalized_pixels = normalized_pixels * (1 + radius_sq * self.r1u + radius_sq ** 2 * self.r2u)
+        normalized_pixels = normalized_pixels * (1 + self.undist_layers(radius_sq[:, None])).T
+        #normalized_pixels = normalized_pixels * (1 + radius_sq * self.r1u + radius_sq ** 2 * self.r2u)
         normalized_pixels = (normalized_pixels * self.focal_length_pixels) + self.principal_point_pixel
         return normalized_pixels
 
@@ -812,7 +827,8 @@ class EfficientCamera(Plane, nn.Module):
                  axes=None, height=4.9152, width=6.144, focal_length_pixels=5696.3, 
                  pixel_size=4.8e-3, 
                  principal_point_pixel=None,
-                 r1=0.):
+                 r1=0.,
+                 radial_dist_coeffs=None):
         if alpha is None:
             alpha = 0.
         if beta is None:
@@ -852,15 +868,82 @@ class EfficientCamera(Plane, nn.Module):
         self.r2d = nn.Parameter(torch.tensor(0., dtype=torch.float64), requires_grad=False)
         self.r1u = nn.Parameter(torch.tensor(0., dtype=torch.float64), requires_grad=False)
         self.r2u = nn.Parameter(torch.tensor(0., dtype=torch.float64), requires_grad=False)
+        #self.radial_dist_coeffs = radial_dist_coeffs # (2,) tensor
         self.update_camera_center()
-        #self.dist_layer = nn.Linear(2,2, dtype=torch.float64)
-        #self.undist_layer = nn.Linear(2,2, dtype=torch.float64)
+        
+        input_size = 3
+        output_size = 1
+        hidden_size = 8
+        
+        self.dist_layer = nn.Sequential(
+            nn.Linear(input_size, hidden_size, dtype=torch.float64),  # First layer
+            nn.LeakyReLU(),                           # Activation function
+            nn.Linear(hidden_size, hidden_size, dtype=torch.float64),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_size, hidden_size, dtype=torch.float64),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_size, output_size, dtype=torch.float64),  # Output layer
+            nn.ReLU(),
+        )
+        self.undist_layer = nn.Sequential(
+            nn.Linear(input_size, hidden_size, dtype=torch.float64),  # First layer
+            nn.LeakyReLU(),                           # Activation function
+            nn.Linear(hidden_size, hidden_size, dtype=torch.float64),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_size, hidden_size, dtype=torch.float64),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_size, output_size, dtype=torch.float64),  # Output layer
+            nn.ReLU(),
+        )
+        
                 
         # Plane (defining the camera) center should be shifted so that the principal point is along the normal plane through the aperture
         #delta_principal_point = torch.tensor(
         #    [self.a/2 - self.pixel_size*self.principal_point_pixel[0], self.b/2 - self.pixel_size*principal_point_pixel[1]]) 
         #self.center = ((self.principal_point[0,:] + delta_principal_point[0]) * self.horizontal_direction + (self.principal_point[1,:] + delta_principal_point[1]) * self.vertical_direction) + self.principal_point
                 
+
+    def unnormalize_pixels(self, p_scaled):
+        return p_scaled * self.focal_length_pixels + self.principal_point_pixel
+
+
+    def normalize_pixels(self, p_unscaled):
+        return (p_unscaled - self.principal_point_pixel) / self.focal_length_pixels
+
+
+    def undistort_pixels_classical(self, pixels_distorted, distortion_params_):
+        max_iterations = 100
+        tolerance = 1e-12
+        pixels_distorted = self.normalize_pixels(pixels_distorted)
+        pixels_undistorted = pixels_distorted
+        success = False
+        for i in range(max_iterations):
+            # Calculate the radial distance squared
+            r2 = pixels_undistorted[0, :] ** 2 + pixels_undistorted[1, :] ** 2
+            r4 = r2 ** 2
+            # Calculate the radial distortion factor
+            radial_distortion = 1 + distortion_params_[0] * r2 + distortion_params_[1] * r4
+            # Update undistorted coordinates
+            pixels_undistorted_new = pixels_distorted / radial_distortion
+            # Check for convergence
+            if torch.max(torch.abs(pixels_undistorted_new - pixels_undistorted)) < tolerance:
+                #print(f'Converged at iteration {i}')
+                success = True
+                break
+            # Update for the next iteration
+            pixels_undistorted = pixels_undistorted_new
+        if not success:
+            print('Warning: Lens distor')
+        return self.unnormalize_pixels(pixels_undistorted)
+    
+    
+    def distort_pixels_classical(self, pixels_undistorted, distortion_params_):
+        pixels_undistorted = self.normalize_pixels(pixels_undistorted)
+        r2 = pixels_undistorted[0, :] ** 2 + pixels_undistorted[1, :] ** 2
+        r4 = r2 ** 2
+        radial_distortion = 1 + distortion_params_[0] * r2 + distortion_params_[1] * r4
+        return self.unnormalize_pixels(pixels_undistorted * radial_distortion)
+
 
     def update_camera_center(self):
         delta_principal_point = torch.stack(
@@ -877,7 +960,7 @@ class EfficientCamera(Plane, nn.Module):
              )
         world_coordinate = torch.vstack((world_coordinate,
                                           torch.ones(1,world_coordinate.shape[1])))
-        extrinsic_matrix = torch.cat((R.t(), R.t() @ T), dim=1)
+        extrinsic_matrix = torch.cat((R.t(), T), dim=1)
         reprojected_pixels_hom = intrinsic_matrix @ extrinsic_matrix @ world_coordinate
         return reprojected_pixels_hom[:2, :] / reprojected_pixels_hom[2, :][None, :]
 
@@ -949,10 +1032,13 @@ class EfficientCamera(Plane, nn.Module):
     def distort_pixels_MLP(self, pixels):
         normalized_pixels = pixels.clone()
         normalized_pixels = (normalized_pixels - self.principal_point_pixel) / self.focal_length_pixels
-        radius_sq = normalized_pixels[0,:].clone() ** 2 + normalized_pixels[1,:].clone() ** 2
+        radius2 = normalized_pixels[0,:].clone() ** 2 + normalized_pixels[1,:].clone() ** 2
+        radius4 = radius2 ** 2
+        radius6 = radius4 * radius2
+        radius_features = torch.vstack((radius2, radius4, radius6))
         #normalized_pixels = self.dist_layers(normalized_pixels.T).T
-        #normalized_pixels = normalized_pixels * (1 + self.dist_layers(radius_sq[:, None])).T
-        normalized_pixels = normalized_pixels * (1 + radius_sq * self.r1d + radius_sq ** 2 * self.r2d)
+        normalized_pixels = normalized_pixels * (1 + self.dist_layer(radius_features.T)).T
+        #normalized_pixels = normalized_pixels * (1 + radius_sq * self.r1d + radius_sq ** 2 * self.r2d)
         normalized_pixels = (normalized_pixels * self.focal_length_pixels) + self.principal_point_pixel
         return normalized_pixels
     
@@ -960,10 +1046,13 @@ class EfficientCamera(Plane, nn.Module):
     def undistort_pixels_MLP(self, pixels):
         normalized_pixels = pixels.clone()
         normalized_pixels = (normalized_pixels - self.principal_point_pixel) / self.focal_length_pixels
-        radius_sq = normalized_pixels[0,:].clone() ** 2 + normalized_pixels[1,:].clone() ** 2
+        radius2 = normalized_pixels[0,:].clone() ** 2 + normalized_pixels[1,:].clone() ** 2
+        radius4 = radius2 ** 2
+        radius6 = radius4 * radius2
+        radius_features = torch.vstack((radius2, radius4, radius6))
         #normalized_pixels = self.undist_layers(normalized_pixels.T).T
-        #normalized_pixels = normalized_pixels * (1 + self.undist_layers(radius_sq[:, None])).T
-        normalized_pixels = normalized_pixels * (1 + radius_sq * self.r1u + radius_sq ** 2 * self.r2u)
+        normalized_pixels = normalized_pixels * (1 + self.dist_layer(radius_features.T)).T
+        #normalized_pixels = normalized_pixels * (1 + radius_sq * self.r1u + radius_sq ** 2 * self.r2u)
         normalized_pixels = (normalized_pixels * self.focal_length_pixels) + self.principal_point_pixel
         return normalized_pixels
 
