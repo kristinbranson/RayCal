@@ -987,7 +987,7 @@ class Arena_single_camera_prism_grid_distance(nn.Module):
             requires_grad=True,
         )
 
-        self.radial_dist_coeffs = nn.Parameter(torch.tensor([0.,0.]).unsqueeze(-1).to(torch.float64),
+        self.radial_dist_coeffs = nn.Parameter(torch.tensor([0.,0.,0.,0.]).unsqueeze(-1).to(torch.float64),
                                                requires_grad=True)
 
         self.camera1 = EfficientCamera(
@@ -1071,6 +1071,146 @@ class Arena_single_camera_prism_grid_distance(nn.Module):
             distorted_virtual_pixels_cam_0_, distorted_virtual_pixels_cam_0
         )) / 2
         return recon_3D, closest_distance, recon_distorted_real_pixels_cam_0, recon_loss_real, pairwise_distance, intersection_penalty, distortion_penalty
+
+
+    def visualize(self, pixels_real_two_cams, pixels_virtual_two_cams, color_labels=None):
+            num_samples = 10
+            undistorted_virtual_pixels_cam_0 = pixels_virtual_two_cams[:2, :].clone()
+            undistorted_real_pixels_cam_0 = pixels_real_two_cams[:2, :].clone()
+            test_idx = torch.randperm(undistorted_real_pixels_cam_0.shape[1])[:num_samples]
+            ray = self.camera1.initialize_ray(undistorted_real_pixels_cam_0[:, test_idx])
+            ray.t *= 100
+            fig, ax = self.camera1.visualize()
+            fig, ax = ray.visualize(fig, ax, color_labels)
+            ray = self.camera1.initialize_ray(undistorted_virtual_pixels_cam_0[:, test_idx])
+            prism_ray11, prism_ray12, ray, intersection_penalty_1 = self.prism(ray)
+            ray.t *= 100
+            fig, ax = self.prism.visualize_prism(fig, ax)
+            fig, ax = ray.visualize(fig, ax, color_labels)        
+            ax.set_aspect('equal', adjustable='datalim')  
+
+
+# Single camera grid distances
+class Arena_single_camera_prism_grid_image(nn.Module):
+    def __init__(self, 
+    principal_point_pixel_cam_0=None, 
+    principal_point_pixel_cam_1=None, 
+    focal_length_cam_0=None, 
+    focal_length_cam_1=None, 
+    R_stereo_cam=None, 
+    T_stereo_cam=None, 
+    prism_distance=None,
+    prism_angles=None,
+    prism_center=None):
+        super(Arena_single_camera_prism_grid_image, self).__init__()
+
+        # Camera initialization      
+        principal_point_pixel_cam_0 = nn.Parameter(
+            torch.tensor(principal_point_pixel_cam_0, dtype=torch.float64).reshape(2,1),
+            requires_grad=True,
+        )  
+
+        principal_point_pixel_cam_1 = nn.Parameter(
+            torch.tensor(principal_point_pixel_cam_1, dtype=torch.float64).reshape(2,1),
+            requires_grad=True,
+        )  
+
+        focal_length_cam_0 = nn.Parameter(
+            torch.tensor(focal_length_cam_0, dtype=torch.float64),
+            requires_grad=True,
+        )
+
+        focal_length_cam_1 = nn.Parameter(
+            torch.tensor(focal_length_cam_1, dtype=torch.float64),
+            requires_grad=True,
+        )
+
+        self.r1 = nn.Parameter(
+            torch.tensor(1e-6, dtype=torch.float64),
+            requires_grad=True,
+        )
+        self.stereocam_r1 = nn.Parameter(
+            torch.tensor(1e-6, dtype=torch.float64),
+            requires_grad=True,
+        )
+
+        self.radial_dist_coeffs = nn.Parameter(torch.tensor([0.,0.,0.,0.]).unsqueeze(-1).to(torch.float64),
+                                               requires_grad=True)
+
+        self.camera1 = EfficientCamera(
+            principal_point_pixel=principal_point_pixel_cam_0,
+            focal_length_pixels=focal_length_cam_0,
+            r1=self.r1,
+            radial_dist_coeffs=self.radial_dist_coeffs)
+
+        self.principal_point_pixel_cam_1 = principal_point_pixel_cam_1
+        self.focal_length_cam_1 = focal_length_cam_1
+        self.R_stereo_cam = R_stereo_cam
+        self.T_stereo_cam = nn.Parameter(T_stereo_cam, requires_grad=True)
+
+        # Prism initialization
+        prism_angles = nn.Parameter(prism_angles, requires_grad=True)
+        refractive_index_glass = torch.tensor(1.5, dtype=torch.float64)
+        refractive_index_glass = nn.Parameter(refractive_index_glass, requires_grad=True)
+        if prism_center is None:
+            prism_center = self.camera1.aperture.clone() + self.camera1.axes[:,0].unsqueeze(-1).clone() * prism_distance.clone()
+            prism_center[0] = -5.
+
+        prism_center = nn.Parameter(prism_center, requires_grad=True)
+        prism_size = nn.Parameter(torch.tensor([20.,20.,20.],dtype=torch.float64), requires_grad=True)
+
+        self.prism = Prism(prism_size=prism_size, 
+                        prism_center=prism_center, 
+                        prism_angles=prism_angles,
+                        refractive_index_glass=refractive_index_glass,
+                        )
+        
+        
+    def forward(self, pixels_real_two_cams, pixels_virtual_two_cams):
+        R1 = torch.eye(3, 3).to(torch.float64)
+        T1 = torch.zeros(3, 1).to(torch.float64)
+        distorted_real_pixels_cam_0 = pixels_real_two_cams[:2,:]
+        distorted_virtual_pixels_cam_0 = pixels_virtual_two_cams[:2,:]
+        undistorted_real_pixels_cam_0 = self.camera1.undistort_pixels_classical(distorted_real_pixels_cam_0, 
+                                                                                self.radial_dist_coeffs)
+        undistorted_virtual_pixels_cam_0 = self.camera1.undistort_pixels_classical(distorted_virtual_pixels_cam_0,
+                                                                                self.radial_dist_coeffs)
+        
+        #undistorted_real_pixels_cam_0 = self.camera1.undistort_pixels_MLP(distorted_real_pixels_cam_0)
+        #undistorted_virtual_pixels_cam_0 = self.camera1.undistort_pixels_MLP(distorted_virtual_pixels_cam_0)
+        #undistorted_real_pixels_cam_0 = distorted_real_pixels_cam_0        
+        #undistorted_virtual_pixels_cam_0 = distorted_virtual_pixels_cam_0
+        cam_1_ray_real = self.camera1(undistorted_real_pixels_cam_0)
+        cam_1_ray_virtual = self.camera1(undistorted_virtual_pixels_cam_0)
+        _, _, emergent_1_ray_virtual, intersection_penalty = self.prism(cam_1_ray_virtual)
+        recon_3D, closest_distance = closest_point(cam_1_ray_real, emergent_1_ray_virtual)
+        recon_undistorted_real_pixels_cam_0 = self.camera1.reproject(recon_3D, R1, T1)
+        recon_distorted_real_pixels_cam_0 = self.camera1.distort_pixels_classical(recon_undistorted_real_pixels_cam_0,
+                                                                                  self.radial_dist_coeffs)
+        #recon_distorted_real_pixels_cam_0 = self.camera1.distort_pixels_MLP(recon_undistorted_real_pixels_cam_0)
+        #recon_distorted_real_pixels_cam_0 = recon_undistorted_real_pixels_cam_0
+        #recon_distorted_real_pixels_cam_1 = recon_undistorted_real_pixels_cam_1
+        #recon_3D = recon_3D[:, :num_points]
+        #recon_distorted_real_pixels_cam_0 = recon_distorted_real_pixels_cam_0[:, :num_points]
+        #recon_distorted_real_pixels_cam_1 = recon_distorted_real_pixels_cam_1[:, :num_points]
+        recon_loss_real = (euclidean_distance(
+            recon_distorted_real_pixels_cam_0,
+            distorted_real_pixels_cam_0))
+        
+        # Distortion penalty
+        distorted_real_pixels_cam_0_ = self.camera1.distort_pixels_classical(undistorted_real_pixels_cam_0,
+                                                                             self.radial_dist_coeffs.data)
+        distorted_virtual_pixels_cam_0_ = self.camera1.distort_pixels_classical(undistorted_virtual_pixels_cam_0,
+                                                                      self.radial_dist_coeffs.data)
+        
+        #distorted_real_pixels_cam_0_ = self.camera1.distort_pixels_MLP(undistorted_real_pixels_cam_0)
+        #distorted_virtual_pixels_cam_0_ = self.camera1.distort_pixels_MLP(undistorted_virtual_pixels_cam_0)
+        distortion_penalty = (euclidean_distance(
+            distorted_real_pixels_cam_0_, distorted_real_pixels_cam_0
+        ) + euclidean_distance(
+            distorted_virtual_pixels_cam_0_, distorted_virtual_pixels_cam_0
+        )) / 2
+        return recon_3D, closest_distance, recon_distorted_real_pixels_cam_0, recon_loss_real, intersection_penalty, distortion_penalty
 
 
     def visualize(self, pixels_real_two_cams, pixels_virtual_two_cams, color_labels=None):

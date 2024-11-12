@@ -13,8 +13,8 @@ import os
 import scipy.io as sio
 import torch.nn as nn
 from utils import euclidean_distance
-#mpl.use('TkAgg') # Use this if working on the PC
-mpl.use('QtAgg') # Use this if working remotely with NoMachine
+mpl.use('TkAgg') # Use this if working on the PC
+#mpl.use('QtAgg') # Use this if working remotely with NoMachine
 plt.ion()
 
 pi = torch.tensor(np.pi).to(torch.float64)
@@ -913,9 +913,9 @@ class EfficientCamera(Plane, nn.Module):
 
     def undistort_pixels_classical(self, pixels_distorted, distortion_params_):
         max_iterations = 100
-        tolerance = 1e-12
+        tolerance = 1e-14
         pixels_distorted = self.normalize_pixels(pixels_distorted)
-        pixels_undistorted = pixels_distorted
+        pixels_undistorted = pixels_distorted.clone()
         success = False
         for i in range(max_iterations):
             # Calculate the radial distance squared
