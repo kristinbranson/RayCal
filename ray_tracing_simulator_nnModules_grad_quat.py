@@ -12,7 +12,7 @@ import torch.nn as nn
 import os
 import scipy.io as sio
 import torch.nn as nn
-from utils import euclidean_distance
+from utils import euclidean_distance, rotation_matrix_to_quaternion, rotate_vec_with_quat, mult_quat, quaternion_to_rotation_matrix, conj_quat
 mpl.use('TkAgg') # Use this if working on the PC
 #mpl.use('QtAgg') # Use this if working remotely with NoMachine
 plt.ion()
@@ -199,7 +199,7 @@ class Ray():
 
 # %% Plane class
 class Plane(nn.Module):
-    def __init__(self, axes=None, center=None, alpha=0., beta=0., gamma=0., a=1., b=1.):
+    def __init__(self, axes=None, center=None, alpha=0., beta=0., gamma=0., a=1., b=1., quat=None):
         super(Plane, self).__init__()
         """
         NOTE: Default normal vector is [1, 0, 0], and center is [0,0,0]
@@ -238,24 +238,35 @@ class Plane(nn.Module):
         self.center = center
         self.a = a
         self.b = b
-        self.center = center        
-        if axes is None:
-            if alpha.dtype != torch.float64:
-                alpha = alpha.to(torch.float64)
-                beta = beta.to(torch.float64)
-                gamma = gamma.to(torch.float64)
-            rot_mat =  get_rot_mat(alpha, beta, gamma) # Rotation matrix
-            axes = torch.mm(
-                rot_mat,
-                torch.tensor([[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]], dtype=torch.float64)
-                )
-        self.axes = axes
+        self.center = center
 
+        if not isinstance(alpha, torch.Tensor) or not alpha.dtype==torch.float64:
+            alpha = torch.tensor(alpha).to(torch.float64)
+            beta = torch.tensor(beta).to(torch.float64)
+            gamma = torch.tensor(gamma).to(torch.float64)
+
+        if quat is None:
+            rot_mat =  get_rot_mat(alpha, beta, gamma) # Rotation matrix
+            quat = rotation_matrix_to_quaternion(rot_mat)
+
+        if axes is None:            
+            axes = torch.tensor([[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]], dtype=torch.float64)
+            axes = rotate_vec_with_quat(axes, quat)
+            
+        self.axes = axes
+        self.quat_param = quat
 
     @property
     def sides(self):
         return self.angles_to_sides(self.alpha, self.beta, self.gamma)
-
+    
+    @property
+    def quat(self):
+        return self.quat_param / torch.linalg.norm(self.quat_param)
+        real_part = torch.cos(self.quat_param[0] / 2)
+        imaginary_part = self.quat_param[1:] * torch.sin(self.quat_param[0] / 2)
+        return torch.cat((real_part, imaginary_part))
+    
     @property
     def horizontal_direction(self):
         return self.get_horizontal_direction()
@@ -285,51 +296,28 @@ class Plane(nn.Module):
         return torch.arctan2(self.axes[1,0], self.axes[0,0])        
     
     def get_horizontal_direction(self, original_horizontal_direction=None, rot_mat=None):       
-        #NOTE: You need the original vertical direction in case the plane has been rotate
-        """
-        if not isinstance(original_horizontal_direction, torch.Tensor):
-            original_horizontal_direction = torch.tensor([0., 0., -1.], dtype=torch.float64, device=self.center.device).unsqueeze(-1)
-        if not isinstance(original_horizontal_direction, torch.Tensor):
-            original_horizontal_direction = torch.tensor(original_horizontal_direction, dtype=torch.float64, device=self.center.device)
-        if len(original_horizontal_direction.shape) == 1:
-            original_horizontal_direction = original_horizontal_direction.unsqueeze(-1)
-        #horizontal_direction = torch.tensor([0., 0., -1.], dtype=torch.float64).unsqueeze(-1)
-        if rot_mat is None:
-            #rot_mat = rotz(self.gamma) @ roty(self.beta) @ rotx(self.alpha) # Rotation matrix        
-            rot_mat =  get_rot_mat(self.alpha, self.beta, self.gamma)
-        horizontal_direction = torch.mm(rot_mat, original_horizontal_direction)
-        """
         return self.axes[:,1].unsqueeze(-1)
 
 
     def get_vertical_direction(self, original_vertical_direction=None, rot_mat=None):
         #NOTE: You need the original vertical direction in case the plane has been rotated
-        """
-        if original_vertical_direction is None:
-            original_vertical_direction = torch.tensor([0., 1., 0.], dtype=torch.float64, device=self.alpha.device).unsqueeze(-1)
-        if not isinstance(original_vertical_direction, torch.Tensor):
-            original_vertical_direction = torch.tensor(original_vertical_direction, dtype=torch.float64, device=self.alpha.device)
-        if len(original_vertical_direction.shape) == 1:
-            original_vertical_direction = original_vertical_direction.unsqueeze(-1)
-        #vertical_direction = torch.tensor([0., 1., 0.], dtype=torch.float64).unsqueeze(-1)
-        if rot_mat is None:
-            #rot_mat = rotz(self.gamma) @ roty(self.beta) @ rotx(self.alpha) # Rotation matrix        
-            rot_mat =  get_rot_mat(self.alpha, self.beta, self.gamma)
-        vertical_direction = torch.mm(rot_mat, original_vertical_direction)
-        """
         return self.axes[:,2].unsqueeze(-1)
 
 
-    def rotate_plane(self, alpha_rot=0., beta_rot=0., gamma_rot=0., rot_mat=None):
-        if rot_mat is None:
-            rot_mat =  get_rot_mat(alpha_rot, beta_rot, gamma_rot) # Rotation matrix
-        self.axes = torch.mm(rot_mat, self.axes)
-        self.center = torch.mm(rot_mat, self.center)
+    def rotate_plane(self, alpha_rot=0., beta_rot=0., gamma_rot=0., rot_mat=None, quat=None):
+        if quat is None:
+            if rot_mat is None:
+                rot_mat =  get_rot_mat(alpha_rot, beta_rot, gamma_rot) # Rotation matrix
+            self.axes = torch.mm(rot_mat, self.axes)
+            self.center = torch.mm(rot_mat, self.center)
+        else:
+            self.axes = rotate_vec_with_quat(self.axes, quat)
+            self.center = rotate_vec_with_quat(self.center, quat)
+            self.quat_param = mult_quat(quat, self.quat)
 
         
     def move_plane(self, displacement):
         self.center = self.center + displacement
-
 
     def angles_to_sides(self, alpha, beta, gamma):
         """
@@ -495,8 +483,8 @@ class Plane(nn.Module):
 class RefractingPlane(Plane, nn.Module):
     def __init__(self, alpha=0., beta=0., gamma=0., center=[0.,0.,0.], 
                  axes=None, refractive_idx_1=1., refractive_idx_2=1.,
-                  a=1., b=1.):                  
-        super(RefractingPlane, self).__init__(axes=axes, center=center, alpha=alpha, beta=beta, gamma=gamma, a=a, b=b)
+                  a=1., b=1., quat=None):                  
+        super(RefractingPlane, self).__init__(axes=axes, center=center, alpha=alpha, beta=beta, gamma=gamma, a=a, b=b, quat=quat)
         """
         refractive_idx_1 is on the side facing the normal
         refractive_idx_2 is on the side facing away from the normal
@@ -566,8 +554,8 @@ class RefractingPlane(Plane, nn.Module):
 class ReflectingPlane(Plane, nn.Module):
     def __init__(self, alpha=0., beta=0., gamma=0., 
                 center=[0.,0.,0.], axes=None,
-                a=1., b=1.):
-        super(ReflectingPlane, self).__init__(axes=axes, center=center, alpha=alpha, beta=beta, gamma=gamma, a=a, b=b) 
+                a=1., b=1., quat=None):
+        super(ReflectingPlane, self).__init__(axes=axes, center=center, alpha=alpha, beta=beta, gamma=gamma, a=a, b=b, quat=quat) 
     
     def forward(self, ray):
         bad_rays_mask = ~(torch.linalg.vector_norm(ray.direction, dim=0) > 1e-1)
@@ -605,7 +593,7 @@ class Camera(Plane, nn.Module):
                  axes=None, height=4.9152, width=6.144, focal_length_pixels=5696.3, 
                  pixel_size=4.8e-3, 
                  principal_point_pixel=None,
-                 r1=0.):
+                 r1=0., quat=None):
         if alpha is None:
             alpha = 0.
         if beta is None:
@@ -618,7 +606,7 @@ class Camera(Plane, nn.Module):
                 [0., 0., 1.],
                 [1., 0., 0.]]).to(torch.float64)
         
-        super(Camera, self).__init__(axes=axes, center=[0.,0.,0], alpha=alpha, beta=beta, gamma=gamma, a=width, b=height)
+        super(Camera, self).__init__(axes=axes, center=[0.,0.,0], alpha=alpha, beta=beta, gamma=gamma, a=width, b=height, quat=quat)
         if principal_point_pixel is None:
             principal_point_pixel = torch.tensor([width/pixel_size/2, height/pixel_size/2.], dtype=torch.float64)[:, None]
 
@@ -646,23 +634,8 @@ class Camera(Plane, nn.Module):
         self.r1u = nn.Parameter(torch.tensor(0., dtype=torch.float64), requires_grad=True)
         self.r2u = nn.Parameter(torch.tensor(0., dtype=torch.float64), requires_grad=True)
         self.update_camera_center()
-        input_size = 1
-        hidden_size = 4
-        output_size = 1
-        self.dist_layer = nn.Sequential(
-            nn.Linear(input_size, hidden_size, dtype=torch.float64),  # First layer
-            nn.ReLU(),                           # Activation function
-            nn.Linear(hidden_size, hidden_size, dtype=torch.float64),
-            nn.ReLU(),
-            nn.Linear(hidden_size, output_size, dtype=torch.float64),  # Output layer
-        )
-        self.undist_layer = nn.Sequential(
-            nn.Linear(input_size, hidden_size, dtype=torch.float64),  # First layer
-            nn.ReLU(),                           # Activation function
-            nn.Linear(hidden_size, hidden_size, dtype=torch.float64),
-            nn.ReLU(),
-            nn.Linear(hidden_size, output_size, dtype=torch.float64),  # Output layer
-        )
+        #self.dist_layer = nn.Linear(2,2, dtype=torch.float64)
+        #self.undist_layer = nn.Linear(2,2, dtype=torch.float64)
                 
         # Plane (defining the camera) center should be shifted so that the principal point is along the normal plane through the aperture
         #delta_principal_point = torch.tensor(
@@ -685,7 +658,7 @@ class Camera(Plane, nn.Module):
              )
         world_coordinate = torch.vstack((world_coordinate,
                                           torch.ones(1,world_coordinate.shape[1])))
-        extrinsic_matrix = torch.cat((R.t(), R.t() @ T), dim=1)
+        extrinsic_matrix = torch.cat((R.t(), T), dim=1)
         reprojected_pixels_hom = intrinsic_matrix @ extrinsic_matrix @ world_coordinate
         return reprojected_pixels_hom[:2, :] / reprojected_pixels_hom[2, :][None, :]
 
@@ -723,14 +696,14 @@ class Camera(Plane, nn.Module):
         return pixels
     
     
-    def update_camera_pose(self, R, T):
+    def update_camera_pose(self, quat, T):
         """
         Update the camera pose, given the camera extrinsics as Rotation Matrix (R) and Translation vector (t)
         """
         focal_length = self.focal_length_pixels * self.pixel_size
         self.move_plane(displacement=self.aperture - self.center) # Move center to aperture
         self.move_plane(displacement=-T.clone())
-        self.rotate_plane(rot_mat=R.clone())
+        self.rotate_plane(quat=quat)
         self.aperture = self.center
         self.center = self.aperture - focal_length * self.axes[:,0].unsqueeze(-1)
         self.center = self.center + torch.cat((
@@ -759,8 +732,8 @@ class Camera(Plane, nn.Module):
         normalized_pixels = (normalized_pixels - self.principal_point_pixel) / self.focal_length_pixels
         radius_sq = normalized_pixels[0,:].clone() ** 2 + normalized_pixels[1,:].clone() ** 2
         #normalized_pixels = self.dist_layers(normalized_pixels.T).T
-        normalized_pixels = normalized_pixels * (1 + self.dist_layers(radius_sq[:, None])).T
-        #normalized_pixels = normalized_pixels * (1 + radius_sq * self.r1d + radius_sq ** 2 * self.r2d)
+        #normalized_pixels = normalized_pixels * (1 + self.dist_layers(radius_sq[:, None])).T
+        normalized_pixels = normalized_pixels * (1 + radius_sq * self.r1d + radius_sq ** 2 * self.r2d)
         normalized_pixels = (normalized_pixels * self.focal_length_pixels) + self.principal_point_pixel
         return normalized_pixels
     
@@ -770,8 +743,8 @@ class Camera(Plane, nn.Module):
         normalized_pixels = (normalized_pixels - self.principal_point_pixel) / self.focal_length_pixels
         radius_sq = normalized_pixels[0,:].clone() ** 2 + normalized_pixels[1,:].clone() ** 2
         #normalized_pixels = self.undist_layers(normalized_pixels.T).T
-        normalized_pixels = normalized_pixels * (1 + self.undist_layers(radius_sq[:, None])).T
-        #normalized_pixels = normalized_pixels * (1 + radius_sq * self.r1u + radius_sq ** 2 * self.r2u)
+        #normalized_pixels = normalized_pixels * (1 + self.undist_layers(radius_sq[:, None])).T
+        normalized_pixels = normalized_pixels * (1 + radius_sq * self.r1u + radius_sq ** 2 * self.r2u)
         normalized_pixels = (normalized_pixels * self.focal_length_pixels) + self.principal_point_pixel
         return normalized_pixels
 
@@ -827,14 +800,13 @@ class EfficientCamera(Plane, nn.Module):
                  axes=None, height=4.9152, width=6.144, focal_length_pixels=5696.3, 
                  pixel_size=4.8e-3, 
                  principal_point_pixel=None,
-                 r1=0.,
-                 radial_dist_coeffs=None):
+                 r1=0.):
         if alpha is None:
-            alpha = 0.
+            alpha = torch.tensor(0.).to(torch.float64)
         if beta is None:
-            beta = 0.
+            beta = torch.tensor(0.).to(torch.float64)
         if gamma is None:
-            gamma = 0.
+            gamma = torch.tensor(0.).to(torch.float64)
         
         axes=torch.tensor([
                 [0., 1., 0.],
@@ -868,34 +840,9 @@ class EfficientCamera(Plane, nn.Module):
         self.r2d = nn.Parameter(torch.tensor(0., dtype=torch.float64), requires_grad=False)
         self.r1u = nn.Parameter(torch.tensor(0., dtype=torch.float64), requires_grad=False)
         self.r2u = nn.Parameter(torch.tensor(0., dtype=torch.float64), requires_grad=False)
-        #self.radial_dist_coeffs = radial_dist_coeffs # (2,) tensor
         self.update_camera_center()
-        
-        input_size = 3
-        output_size = 1
-        hidden_size = 8
-        
-        self.dist_layer = nn.Sequential(
-            nn.Linear(input_size, hidden_size, dtype=torch.float64),  # First layer
-            nn.LeakyReLU(),                           # Activation function
-            nn.Linear(hidden_size, hidden_size, dtype=torch.float64),
-            nn.LeakyReLU(),
-            nn.Linear(hidden_size, hidden_size, dtype=torch.float64),
-            nn.LeakyReLU(),
-            nn.Linear(hidden_size, output_size, dtype=torch.float64),  # Output layer
-            nn.ReLU(),
-        )
-        self.undist_layer = nn.Sequential(
-            nn.Linear(input_size, hidden_size, dtype=torch.float64),  # First layer
-            nn.LeakyReLU(),                           # Activation function
-            nn.Linear(hidden_size, hidden_size, dtype=torch.float64),
-            nn.LeakyReLU(),
-            nn.Linear(hidden_size, hidden_size, dtype=torch.float64),
-            nn.LeakyReLU(),
-            nn.Linear(hidden_size, output_size, dtype=torch.float64),  # Output layer
-            nn.ReLU(),
-        )
-        
+        #self.dist_layer = nn.Linear(2,2, dtype=torch.float64)
+        #self.undist_layer = nn.Linear(2,2, dtype=torch.float64)
                 
         # Plane (defining the camera) center should be shifted so that the principal point is along the normal plane through the aperture
         #delta_principal_point = torch.tensor(
@@ -903,65 +850,27 @@ class EfficientCamera(Plane, nn.Module):
         #self.center = ((self.principal_point[0,:] + delta_principal_point[0]) * self.horizontal_direction + (self.principal_point[1,:] + delta_principal_point[1]) * self.vertical_direction) + self.principal_point
                 
 
-    def unnormalize_pixels(self, p_scaled):
-        return p_scaled * self.focal_length_pixels + self.principal_point_pixel
-
-
-    def normalize_pixels(self, p_unscaled):
-        return (p_unscaled - self.principal_point_pixel) / self.focal_length_pixels
-
-
-    def undistort_pixels_classical(self, pixels_distorted, distortion_params_):
-        max_iterations = 100
-        tolerance = 1e-14
-        pixels_distorted = self.normalize_pixels(pixels_distorted)
-        pixels_undistorted = pixels_distorted.clone()
-        success = False
-        for i in range(max_iterations):
-            # Calculate the radial distance squared
-            r2 = pixels_undistorted[0, :] ** 2 + pixels_undistorted[1, :] ** 2
-            r4 = r2 ** 2
-            # Calculate the radial distortion factor
-            radial_distortion = 1 + distortion_params_[0] * r2 + distortion_params_[1] * r4
-            # Update undistorted coordinates
-            pixels_undistorted_new = pixels_distorted / radial_distortion
-            # Check for convergence
-            if torch.max(torch.abs(pixels_undistorted_new - pixels_undistorted)) < tolerance:
-                #print(f'Converged at iteration {i}')
-                success = True
-                break
-            # Update for the next iteration
-            pixels_undistorted = pixels_undistorted_new
-        if not success:
-            print('Warning: Lens distor')
-        return self.unnormalize_pixels(pixels_undistorted)
-    
-    
-    def distort_pixels_classical(self, pixels_undistorted, distortion_params_):
-        pixels_undistorted = self.normalize_pixels(pixels_undistorted)
-        r2 = pixels_undistorted[0, :] ** 2 + pixels_undistorted[1, :] ** 2
-        r4 = r2 ** 2
-        radial_distortion = 1 + distortion_params_[0] * r2 + distortion_params_[1] * r4 
-        return self.unnormalize_pixels(pixels_undistorted * radial_distortion)
-
-
     def update_camera_center(self):
         delta_principal_point = torch.stack(
             [self.a/2 - self.pixel_size*self.principal_point_pixel[0], self.b/2 - self.pixel_size*self.principal_point_pixel[1]]) 
         self.center = ((self.principal_point[0,:] + delta_principal_point[0]) * self.horizontal_direction + (self.principal_point[1,:] + delta_principal_point[1]) * self.vertical_direction) + self.principal_point
 
 
-    def reproject(self, world_coordinate, R, T):
+    def reproject(self, world_coordinate, T):
         # R is the camera rotation matrix
+        R = quaternion_to_rotation_matrix(self.quat)
         intrinsic_matrix = torch.stack(
             [torch.stack([self.focal_length_pixels, torch.tensor(0.), self.principal_point_pixel[0,0]]), 
              torch.stack([torch.tensor(0.), self.focal_length_pixels, self.principal_point_pixel[1,0]]), 
              torch.stack([torch.tensor(0.), torch.tensor(0.), torch.tensor(1.)])]
-             )
-        world_coordinate = torch.vstack((world_coordinate,
-                                          torch.ones(1,world_coordinate.shape[1])))
-        extrinsic_matrix = torch.cat((R.t(), T), dim=1)
-        reprojected_pixels_hom = intrinsic_matrix @ extrinsic_matrix @ world_coordinate
+             )        
+        #world_coordinate = torch.vstack((world_coordinate,
+        #                                  torch.ones(1,world_coordinate.shape[1])))
+        #extrinsic_matrix = torch.cat((R.t(), T), dim=1)
+        world_coordinate = rotate_vec_with_quat(world_coordinate, conj_quat(self.quat))
+        world_coordinate = world_coordinate + T
+        #reprojected_pixels_hom = intrinsic_matrix @ extrinsic_matrix @ world_coordinate
+        reprojected_pixels_hom = intrinsic_matrix @ world_coordinate
         return reprojected_pixels_hom[:2, :] / reprojected_pixels_hom[2, :][None, :]
 
 
@@ -998,14 +907,14 @@ class EfficientCamera(Plane, nn.Module):
         return pixels
     
     
-    def update_camera_pose(self, R, T):
+    def update_camera_pose(self, quat, T):
         """
         Update the camera pose, given the camera extrinsics as Rotation Matrix (R) and Translation vector (t)
         """
         focal_length = self.focal_length_pixels * self.pixel_size
         self.move_plane(displacement=self.aperture - self.center) # Move center to aperture
-        self.move_plane(displacement=-T.clone())
-        self.rotate_plane(rot_mat=R.clone())
+        self.move_plane(displacement=-T.clone())       
+        self.rotate_plane(quat=quat)
         self.aperture = self.center
         self.center = self.aperture - focal_length * self.axes[:,0].unsqueeze(-1)
         self.center = self.center + torch.cat((
@@ -1023,7 +932,7 @@ class EfficientCamera(Plane, nn.Module):
         normalized_pixels = (normalized_pixels - self.principal_point_pixel) / self.focal_length_pixels 
         radius_sq = normalized_pixels[0,:].clone() ** 2 + normalized_pixels[1,:].clone() ** 2
         normalized_pixels = normalized_pixels / (2 * self.r1 * radius_sq + 1e-16
-        ) * (1 - torch.sqrt(1 - 4 * self.r1 * radius_sq)
+        ) * (1 - torch.sqrt(torch.relu(1 - 4 * self.r1 * radius_sq))
         )
         normalized_pixels = (normalized_pixels * self.focal_length_pixels) + self.principal_point_pixel
         return normalized_pixels
@@ -1032,13 +941,10 @@ class EfficientCamera(Plane, nn.Module):
     def distort_pixels_MLP(self, pixels):
         normalized_pixels = pixels.clone()
         normalized_pixels = (normalized_pixels - self.principal_point_pixel) / self.focal_length_pixels
-        radius2 = normalized_pixels[0,:].clone() ** 2 + normalized_pixels[1,:].clone() ** 2
-        radius4 = radius2 ** 2
-        radius6 = radius4 * radius2
-        radius_features = torch.vstack((radius2, radius4, radius6))
+        radius_sq = normalized_pixels[0,:].clone() ** 2 + normalized_pixels[1,:].clone() ** 2
         #normalized_pixels = self.dist_layers(normalized_pixels.T).T
-        normalized_pixels = normalized_pixels * (1 + self.dist_layer(radius_features.T)).T
-        #normalized_pixels = normalized_pixels * (1 + radius_sq * self.r1d + radius_sq ** 2 * self.r2d)
+        #normalized_pixels = normalized_pixels * (1 + self.dist_layers(radius_sq[:, None])).T
+        normalized_pixels = normalized_pixels * (1 + radius_sq * self.r1d + radius_sq ** 2 * self.r2d)
         normalized_pixels = (normalized_pixels * self.focal_length_pixels) + self.principal_point_pixel
         return normalized_pixels
     
@@ -1046,13 +952,10 @@ class EfficientCamera(Plane, nn.Module):
     def undistort_pixels_MLP(self, pixels):
         normalized_pixels = pixels.clone()
         normalized_pixels = (normalized_pixels - self.principal_point_pixel) / self.focal_length_pixels
-        radius2 = normalized_pixels[0,:].clone() ** 2 + normalized_pixels[1,:].clone() ** 2
-        radius4 = radius2 ** 2
-        radius6 = radius4 * radius2
-        radius_features = torch.vstack((radius2, radius4, radius6))
+        radius_sq = normalized_pixels[0,:].clone() ** 2 + normalized_pixels[1,:].clone() ** 2
         #normalized_pixels = self.undist_layers(normalized_pixels.T).T
-        normalized_pixels = normalized_pixels * (1 + self.dist_layer(radius_features.T)).T
-        #normalized_pixels = normalized_pixels * (1 + radius_sq * self.r1u + radius_sq ** 2 * self.r2u)
+        #normalized_pixels = normalized_pixels * (1 + self.undist_layers(radius_sq[:, None])).T
+        normalized_pixels = normalized_pixels * (1 + radius_sq * self.r1u + radius_sq ** 2 * self.r2u)
         normalized_pixels = (normalized_pixels * self.focal_length_pixels) + self.principal_point_pixel
         return normalized_pixels
 
@@ -1172,9 +1075,10 @@ class Prism(nn.Module):
     def get_planes(self, prism_center, prism_angles):       
         prism_alpha, prism_beta, prism_gamma = prism_angles
         rot_mat = get_rot_mat(prism_alpha, prism_beta, prism_gamma)
-        axes1 = torch.mm(rot_mat, 
-                            torch.tensor([[1.,0.,0.], [0.,1.,0.], [0.,0.,1.]], dtype=torch.float64).t()
-                            )        
+        #axes1 = torch.mm(rot_mat, 
+        #                    torch.tensor([[1.,0.,0.], [0.,1.,0.], [0.,0.,1.]], dtype=torch.float64).t()
+        #                    )     
+        axes1 = rotate_vec_with_quat(torch.tensor([[1.,0.,0.], [0.,1.,0.], [0.,0.,1.]], dtype=torch.float64).t(), self.quat)
         plane1 = RefractingPlane(
                             refractive_idx_1=self.refractive_index_air,
                             refractive_idx_2=self.refractive_index_glass,
@@ -1182,6 +1086,7 @@ class Prism(nn.Module):
                             a=self.prism_size[0], 
                             b=self.prism_size[1],
                             center=prism_center,
+                            quat = self.quat
                             ) # Plane facing the camera
 
         #plane2_angles = (torch.sigmoid(self.plane2_angles) - torch.tensor(0.5).to(torch.float64)) * 0.01
@@ -1192,37 +1097,29 @@ class Prism(nn.Module):
         #rot_mat_135 = get_rot_mat(plane2_angles[0],
         #                          3*pi/4 + plane2_angles[1],
         #                          plane2_angles[2])
-        axes_135 = torch.mm(rot_mat_135, 
-                            torch.tensor([[1.,0.,0.], [0.,1.,0.], [0.,0.,1.]], dtype=torch.float64).t()
-                            )
-        
-        axes2 = torch.mm(rot_mat, axes_135)
+        rotation_quat2 = torch.tensor([0.92387953251, 
+                                    0.38268343237*plane1.axes[0,1], 0.38268343237*plane1.axes[1,1], 0.38268343237*plane1.axes[2,1]]).to(torch.float64)
+        quat_plane2 = rotate_vec_with_quat(self.quat, rotation_quat2)
+
         plane2_center = plane1.center - plane1.axes[:,0].unsqueeze(-1) * self.prism_size[1] / 2
         plane2 = ReflectingPlane(
-                            axes=axes2,
+                            quat=quat_plane2,
                             a=self.prism_size[0],
                             b=self.prism_size[1] * torch.sqrt(torch.tensor(2.)),
                             center=plane2_center,
                             )
-        
-        rot_90 = get_rot_mat(torch.tensor(0.).to(torch.float64),
-                             pi/2,
-                             torch.tensor(0.).to(torch.float64))
-
+        rotation_quat3 = torch.tensor([0., 
+                                    -1.*plane1.axes[0,1], -1.*plane1.axes[1,1], -1.*plane1.axes[2,1]]).to(torch.float64)
+        quat_plane3 = rotate_vec_with_quat(self.quat, rotation_quat3)
         #rot_90 = get_rot_mat(plane3_angles[0],
         #                     pi/2 + self.plane3_angles[1],
-        #                     plane3_angles[2])
+        #                     plane3_angles[2])        
         
-        axes3 = torch.mm(rot_90,
-                            torch.tensor([[1.,0.,0.], [0.,1.,0.], [0.,0.,1.]], dtype=torch.float64).t()
-                            )
-        axes3 = torch.mm(rot_mat, axes3)
-
         plane3_center = plane2.center + plane1.axes[:,2].unsqueeze(-1) * self.prism_size[1] / 2        
         plane3 = RefractingPlane(
                             refractive_idx_1=self.refractive_index_glass,
                             refractive_idx_2=self.refractive_index_air,
-                            axes=axes3,
+                            quat=quat_plane3,
                             a = self.prism_size[0],
                             b = self.prism_size[1],
                             center=plane3_center,

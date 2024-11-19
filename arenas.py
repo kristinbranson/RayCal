@@ -307,7 +307,6 @@ class Arena_reprojection_loss(nn.Module):
         
         distortion_penalty_cam_0 = self.camera1.calculate_distortion_penalty(distorted_virtual_pixels_cam_0) + self.camera1.calculate_distortion_penalty(distorted_real_pixels_cam_0)
         distortion_penalty_cam_1 = camera2.calculate_distortion_penalty(distorted_virtual_pixels_cam_1) + camera2.calculate_distortion_penalty(distorted_real_pixels_cam_1)
-        
         return recon_3D, closest_distance, recon_distorted_virtual_pixels_cam_0, recon_distorted_virtual_pixels_cam_1, recon_distorted_real_pixels_cam_0, recon_distorted_real_pixels_cam_1, intersection_penalty_1, distortion_penalty_cam_0, distortion_penalty_cam_1, intersection_penalty_2
 
 

@@ -35,10 +35,9 @@ class CalibrationDataset(Dataset):
         return self.labels_virtual_2D[idx], self.labels_real_2D[idx], self.labels_3D[idx], self.pairwise_distance[idx]
 
 
-
 #%% Load camera calibration results
 load_checkpoint = False
-calibration_results_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/exp_3/results/'
+calibration_results_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/exp_4/results/'
 calibration_results_file = 'dotted_grid_pairwise_data.mat'
 calibration_results_path = os.path.join(calibration_results_dir, calibration_results_file)
 outputs_dir = 'outputs'
@@ -62,14 +61,14 @@ K2 = torch.tensor(stereoParams['CameraParameters2K'][0,0]).to(torch.float64)
 R = torch.tensor(stereoParams['RotationOfCamera2'][0,0]).to(torch.float64)
 T = torch.tensor(stereoParams['TranslationOfCamera2'][0,0]).to(torch.float64).T + 0.
 
-#principal_point_pixel_cam_0 = torch.tensor([644.6182, 524.0583]).to(torch.float64)
-#principal_point_pixel_cam_1 = torch.tensor([640., 512.]).to(torch.float64)
+#principal_point_pixel_cam_0 = torch.tensor([640., 512.]).to(torch.float64) 
+#principal_point_pixel_cam_1 = torch.tensor([640., 512.]).to(torch.float64) 
 
 principal_point_pixel_cam_0 = torch.tensor([K1[0,2] - 1, K1[1,2] - 1], dtype=torch.float64)
 principal_point_pixel_cam_1 = torch.tensor([K2[0,2] - 1, K2[1,2] - 1], dtype=torch.float64)
 
-#focal_length_cam_1 = 5602.4425 #5208. 
-#focal_length_cam_2 = 5208. 
+#focal_length_cam_1 = 5206. 
+#focal_length_cam_2 = 5206. 
 
 focal_length_cam_1 = (K1[0,0] + K1[1,1]) /  2
 focal_length_cam_2 = (K2[0,0] + K2[1,1]) /  2
@@ -112,7 +111,7 @@ def freeze_stereocamera(arena, distortion=True):
 
 #%% Prism corners third plane 
 prism_corners_path = '/groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/prism_corners_third_plane.mat'
-prism_corners_path = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/exp_2/results/prism_corners_first_plane.mat'
+prism_corners_path = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/exp_4/results/prism_corners_first_plane.mat'
 #prism_corners_path = f'{calibration_results_dir}/prism_corners_first_plane.mat'
 prism_corners = sio.loadmat(prism_corners_path)['worldPoints']
 prism3_axes = torch.zeros(3,3).to(torch.float64)
@@ -137,9 +136,34 @@ plane = Plane(axes=prism1_axes)
 prism_angles = torch.tensor([plane.alpha, plane.beta, plane.gamma], dtype=torch.float64)
 max_norm = 10.
 
+#%% Prism first corner annotations
+prism_corners_path = '/groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/prism_corners_third_plane.mat'
+prism_corners_path = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/exp_4/results/prism_corners_first_plane.mat'
+#prism_corners_path = f'{calibration_results_dir}/prism_corners_first_plane.mat'
+prism_corners = sio.loadmat(prism_corners_path)['worldPoints']
+prism1_axes = torch.zeros(3,3).to(torch.float64)
+prism1_axes[:,1] = torch.stack(
+    (torch.tensor(prism_corners[1,:] - prism_corners[0,:], dtype=torch.float64),
+    )
+).mean(dim=0)
+prism1_axes[:,2] = torch.stack(
+    (torch.tensor(prism_corners[3,:] - prism_corners[0,:], dtype=torch.float64),
+     torch.tensor(prism_corners[2,:] - prism_corners[1,:], dtype=torch.float64)
+     )
+).mean(dim=0)
+prism1_axes[:,0] = torch.linalg.cross(prism1_axes[:,1], prism1_axes[:,2])
+prism1_axes = prism1_axes / torch.linalg.norm(prism1_axes, dim=0)
+
+prism_a = 20.
+prism_b = 20.
+prism1_center = torch.tensor(prism_corners, dtype=torch.float64).mean(dim=0)
+plane = Plane(axes=prism1_axes)
+prism_angles = torch.tensor([plane.alpha, plane.beta, plane.gamma], dtype=torch.float64)
+max_norm = 10.
+#prism1_center = torch.tensor([ -5.6856,  -1.2116, 121.2740], dtype=torch.float64)
 #%% Initialize an Arena instance
 prism_angles = torch.tensor([-1.8710,  1.4078, -1.9315], dtype=torch.float64)
-prism1_center = torch.tensor([ -5.1633,  -9.7246, 145.1504], dtype=torch.float64)
+#prism1_center = torch.tensor([ -5.1633,  -9.7246, 145.1504], dtype=torch.float64)
 prism_distance = torch.tensor(130.) # Not used if you're using fiduciary markers for initialization
 arena = Arena_single_camera_prism_grid_distance(principal_point_pixel_cam_0,
             principal_point_pixel_cam_1, 
@@ -151,7 +175,7 @@ arena = Arena_single_camera_prism_grid_distance(principal_point_pixel_cam_0,
             prism_center=prism1_center)
 pixels_virtual_two_cams = torch.vstack((virtual_pixels_cam_0, virtual_pixels_cam_1))
 pixels_real_two_cams = torch.vstack((undistorted_real_pixels_cam_0, undistorted_real_pixels_cam_1))
-#freeze_camera_parameters(arena.camera1)
+freeze_camera_parameters(arena.camera1)
 
 
 #%% Training and validation functions
@@ -200,11 +224,13 @@ def train_two_cams(model, train_loader, criterion, plot=False):
             triangulation_loss = euclidean_distance(
                             stacked_label_3D.T, recon_3D
                             ).sum() / 2 # Because there are twice the number of points as the minibatch size
+            
             reprojection_loss = recon_real_loss.sum()
             closest_distance_loss = closest_distance.sum()
-            loss = 1e1 * recon_real_loss.sum()  + 0 * triangulation_loss + 1e1 * closest_distance_loss + 5e3 * pairwise_distance_loss + 1e3 * intersection_loss + 0 * distortion_loss
+            loss = 1e1 * reprojection_loss  + 0 * triangulation_loss + 1e1 * closest_distance_loss + 5e3 * pairwise_distance_loss + 1e3 * intersection_loss + 0 * distortion_loss
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(arena.parameters(), max_norm=max_norm)
+            #params_to_clip = [model.prism.prism_angles, model.prism.refractive_index_glass]
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_norm)
             optimizer.step()
             repr_loss += reprojection_loss.item()
             tr_loss += triangulation_loss.item()
@@ -236,7 +262,6 @@ def validate(model, val_dataloader, criterion):
             distortion_loss = distortion_penalty.sum() / 2
             d_pairwise_distance = (pairwise_distance_recon - pairwise_distance_batch)
             pairwise_distance_loss = torch.abs(d_pairwise_distance).sum() # Sum of root squared error
-            pairwise_distance_difference = torch.abs(d_pairwise_distance).mean() # Mean absolute difference
             loss = 1e1 * recon_real_loss.sum()  + 0 * triangulation_loss + 1 * closest_distance_loss + 5e3 * pairwise_distance_loss + 1e3 * intersection_loss + 0 * distortion_loss
             val_repr_loss += reprojection_loss.item()
             val_dist_loss += closest_distance_loss.item()
@@ -277,9 +302,11 @@ train_dataset, val_dataset = random_split(
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
-num_epochs = 1000
+num_epochs = 750
+
 optimizer = optim.Adam(arena.parameters(), lr=1e-2
                        )
+#optimizer = optim.Adam(params)
 criterion = torch.nn.MSELoss()
 device = torch.device("cpu")
 arena.to(device)
@@ -311,9 +338,13 @@ for epoch in tqdm(range(num_epochs)):
         for param_group in optimizer.param_groups:
             param_group['lr'] = 5e-4
     
-    if epoch == 500:
+    if epoch == 400:
         for param_group in optimizer.param_groups:
             param_group['lr'] = 1e-4
+
+    if epoch == 600:
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = 5e-5
 
     if plot:
         plt.title(f'Epoch {epoch}')
@@ -337,6 +368,27 @@ for epoch in tqdm(range(num_epochs)):
     writer.add_scalar('Loss/val_pairwise_distance_error', pairwise_distance_loss, epoch)
     writer.add_scalar('Loss/val_intersection_error', intersection_loss, epoch)
     writer.add_scalar('Loss/val_distortion_error', distortion_loss, epoch)
+    writer.add_scalar('Parameter/prism/refractive_index_glass', arena.prism.refractive_index_glass, epoch)
+    writer.add_scalars('Parameter/prism_angles', {
+        'Angle0':arena.prism.prism_angles[0],
+         'Angle1':arena.prism.prism_angles[1],
+          'Angle2':arena.prism.prism_angles[2]},
+            epoch)
+    writer.add_scalars('Parameter/prism_size', {
+        'Size0':arena.prism.prism_size[0],
+         'Size1':arena.prism.prism_size[1],
+          'Size2':arena.prism.prism_size[2]},
+            epoch)
+    writer.add_scalars('Parameter/prism_center', {
+        'Center0':arena.prism.prism_center[0],
+         'Center1':arena.prism.prism_center[1],
+          'Center2':arena.prism.prism_center[2]},
+            epoch)
+    writer.add_scalar('Parameter/focal_length_pixels_0', arena.camera1.focal_length_pixels, epoch)
+    writer.add_scalars('Parameter/camera1_principal_point', {
+        'Angle0':arena.camera1.principal_point_pixel[0],
+         'Angle1':arena.camera1.principal_point_pixel[1]},
+            epoch)
 
     #scheduler.step(val_loss)
     if epoch % 10 == 0:
@@ -348,8 +400,8 @@ for epoch in tqdm(range(num_epochs)):
                     'optimizer_state_dict': optimizer.state_dict(),
                     'loss': repr_loss + dist_loss + triangulation_loss,
                 }, f'{model_checkpoint_dir}/checkpoint_{epoch}.pth')
-    if 1e1*repr_loss + 1e2*dist_loss + 5e3*pairwise_distance_loss + 1e3 * intersection_loss < best_loss:
-        best_loss = 1e1*repr_loss + 1e2*dist_loss + 5e3*pairwise_distance_loss + 1e3 * intersection_loss
+    if 1e1*repr_loss + 1e2*dist_loss + 5e3*pairwise_distance_loss + 1e3*intersection_loss < best_loss:
+        best_loss = 1e1*repr_loss + 1e2*dist_loss + 5e3*pairwise_distance_loss + 1e3*intersection_loss
         torch.save({
                     'epoch': epoch,  # Save the current epoch
                     'model_state_dict': arena.state_dict(),
@@ -371,7 +423,7 @@ recon_3D_test, closest_dist_test, recon_real_1, reprojection_error_test, pairwis
 pixels_real_two_cam_0_test_ = torch.hstack((pixels_real_two_cams_test[:2,:], pixels_real_two_cams_test[2:4,:]))
 test_loss = euclidean_distance(
                             target_coordinates_test_, recon_3D_test
-                            ).mean()
+                            )
 pairwise_distance_loss = torch.abs(pairwise_distance_test_ - pairwise_distance_test).mean()
 print(f'Pairwise distance loss: {pairwise_distance_loss.mean()}')
 print(f'Triangulation loss: {test_loss.mean()}')
@@ -440,6 +492,7 @@ ax.scatter(
     target_coordinates_test_[1,:].detach().numpy(),
     target_coordinates_test_[2,:].detach().numpy(),
     color='r',
+    s=5,
     label='Ground truth',
 )
 ax.scatter(
@@ -447,6 +500,7 @@ ax.scatter(
     recon_3D_test[1,:].detach().numpy(),
     recon_3D_test[2,:].detach().numpy(),
     color='g',
+    s=5,
     label='Estimate',
 )
 ax.set_xlabel('X (mm)', fontsize=22)

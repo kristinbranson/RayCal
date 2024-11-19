@@ -17,6 +17,7 @@ import time
 from arenasEfficient import Arena_two_real_cameras
 from utils import euclidean_distance
 
+
 #%% Dataloader
 class CalibrationDataset(Dataset):
     def __init__(self, data, labels_2D, labels_3D):
@@ -55,13 +56,25 @@ stereoParams = mat['stereoParams_export']
 K1 = torch.tensor(stereoParams['CameraParameters1K'][0,0]).to(torch.float64)
 K2 = torch.tensor(stereoParams['CameraParameters2K'][0,0]).to(torch.float64)
 R = torch.tensor(stereoParams['RotationOfCamera2'][0,0]).to(torch.float64)
-T = torch.tensor(stereoParams['TranslationOfCamera2'][0,0]).to(torch.float64).T + 10.
+T = torch.tensor(stereoParams['TranslationOfCamera2'][0,0]).to(torch.float64).T + 0.
 
-principal_point_pixel_cam_0 = torch.tensor([640., 512.]).to(torch.float64) #torch.tensor([K1[0,2] - 1, K1[1,2] - 1], dtype=torch.float64)
-principal_point_pixel_cam_1 = torch.tensor([640., 512.]).to(torch.float64) #torch.tensor([K2[0,2] - 1, K2[1,2] - 1], dtype=torch.float64)
+#principal_point_pixel_cam_0 = torch.tensor([640., 512.]).to(torch.float64) 
+#principal_point_pixel_cam_1 = torch.tensor([640., 512.]).to(torch.float64) 
 
-focal_length_cam_1 = 5208. #(K1[0,0] + K1[1,1]) /  2
-focal_length_cam_2 = 5208. #(K2[0,0] + K2[1,1]) /  2
+#principal_point_pixel_cam_0 = torch.tensor([K1[0,2] - 1, K1[1,2] - 1], dtype=torch.float64)
+#principal_point_pixel_cam_1 = torch.tensor([K2[0,2] - 1, K2[1,2] - 1], dtype=torch.float64)
+
+#focal_length_cam_1 = 5208. #(K1[0,0] + K1[1,1]) /  2
+#focal_length_cam_2 = 5208. #(K2[0,0] + K2[1,1]) /  2
+
+#focal_length_cam_1 = (K1[0,0] + K1[1,1]) /  2
+#focal_length_cam_2 = (K2[0,0] + K2[1,1]) /  2
+
+principal_point_pixel_cam_0 = torch.tensor([640., 512.]).to(torch.float64)
+principal_point_pixel_cam_1 = torch.tensor([640., 512.]).to(torch.float64)
+
+focal_length_cam_1 = 5208. 
+focal_length_cam_2 = 5208. 
 
 """
 principal_point_pixel_cam_0 = [638.040 - 1, 492.499 - 1] # This comes from the calibration results
@@ -92,32 +105,6 @@ def freeze_individual_planes(prism):
     for param in prism.plane3.parameters():
         param.requires_grad = False
 
-#%% Prism corners third plane 
-prism_corners_path = '/groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/prism_corners_third_plane.mat'
-prism_corners_path = f'{calibration_results_dir}/prism_corners_first_plane.mat'
-prism_corners = sio.loadmat(prism_corners_path)['worldPoints']
-prism3_axes = torch.zeros(3,3).to(torch.float64)
-prism3_axes[:,1] = torch.stack(
-    (torch.tensor(prism_corners[1,:] - prism_corners[0,:], dtype=torch.float64),
-    )
-).mean(dim=0)
-prism3_axes[:,2] = torch.stack(
-    (torch.tensor(prism_corners[3,:] - prism_corners[0,:], dtype=torch.float64),
-     torch.tensor(prism_corners[2,:] - prism_corners[1,:], dtype=torch.float64)
-     )
-).mean(dim=0)
-prism3_axes[:,0] = torch.linalg.cross(prism3_axes[:,1], prism3_axes[:,2])
-prism3_axes = prism3_axes / torch.linalg.norm(prism3_axes, dim=0)
-prism1_axes = torch.mm(rotx(pi/2), prism3_axes)
-
-prism_a = 20.
-prism_b = 20.
-prism3_center = torch.tensor(prism_corners, dtype=torch.float64).mean(dim=0)
-prism1_center = prism3_center + prism_b/2 * prism1_axes[:,0] - prism_b/2 * prism1_axes[:,2] 
-plane = Plane(axes=prism1_axes)
-prism_angles = torch.tensor([plane.alpha, plane.beta, plane.gamma], dtype=torch.float64)
-
-
 
 #%% Initialize an Arena instance
 prism_distance = torch.tensor(130.) # Not used if you're using fiduciary markers for initialization
@@ -126,9 +113,7 @@ arena = Arena_two_real_cameras(principal_point_pixel_cam_0,
             focal_length_cam_1, 
             focal_length_cam_2,
             R,
-            T, 
-            prism_angles=prism_angles,
-            prism_center=prism1_center)
+            T)
 pixels_virtual_two_cams = torch.vstack((virtual_pixels_cam_0, virtual_pixels_cam_1))
 pixels_real_two_cams = torch.vstack((undistorted_real_pixels_cam_0, undistorted_real_pixels_cam_1))
 
@@ -136,7 +121,7 @@ pixels_real_two_cams = torch.vstack((undistorted_real_pixels_cam_0, undistorted_
 #%% Training and validation functions
 def train_two_cams(model, train_loader, criterion, plot=False):    
     model.train()
-    gt_loss = 0.
+    repr_loss = 0.
     dist_loss = 0.
     tr_loss = 0.
     num_batches = 0
@@ -184,15 +169,15 @@ def train_two_cams(model, train_loader, criterion, plot=False):
                             label_3D.T, recon_3D
             ).sum()
             #ground_truth_loss = criterion(output, label.T)
-            ground_truth_loss = recon_real_loss.sum()
+            reprojection_loss = recon_real_loss.sum()
             closest_distance_loss = closest_distance.sum()
             loss = recon_real_loss.sum()  + 5 * triangulation_loss + 5 * closest_distance_loss
             loss.backward()
             optimizer.step()
-            gt_loss += ground_truth_loss.item()
+            repr_loss += reprojection_loss.item()
             tr_loss += triangulation_loss.item()
             dist_loss += closest_distance_loss.item()            
-    return gt_loss / len(train_loader.dataset), dist_loss / len(train_loader.dataset), tr_loss / len(train_loader.dataset)
+    return repr_loss / len(train_loader.dataset), dist_loss / len(train_loader.dataset), tr_loss / len(train_loader.dataset)
 
 
 def train_one_cam(model, pixels):
@@ -206,7 +191,7 @@ def train_one_cam(model, pixels):
 
 def validate(model, val_dataloader, criterion):
     model.eval()
-    val_gt_loss = 0.
+    repr_loss = 0.
     val_dist_loss = 0.
     tr_loss = 0.
     num_batches = 0
@@ -214,22 +199,33 @@ def validate(model, val_dataloader, criterion):
         for input, label_2D, label_3D in val_dataloader:
             num_batches += 1
             recon_3D, closest_distance, recon_distorted_pixels_1, recon_distorted_pixels_2, recon_real_loss = model(input.T, label_2D.T)
-            ground_truth_loss = recon_real_loss.sum()
+            reprojection_loss = recon_real_loss.sum()
             closest_distance_loss = closest_distance.sum()
             triangulation_loss = euclidean_distance(
                             label_3D.T, recon_3D
                             ).sum()
-            val_gt_loss += ground_truth_loss.item()
+            repr_loss += reprojection_loss.item()
             val_dist_loss += closest_distance_loss.item()
             tr_loss += triangulation_loss.item()
-    return val_gt_loss / len(val_loader.dataset), val_dist_loss / len(val_loader.dataset), tr_loss / len(val_loader.dataset)
+    return repr_loss / len(val_loader.dataset), val_dist_loss / len(val_loader.dataset), tr_loss / len(val_loader.dataset)
 
 
 #%% Visualize arena initialization
 arena.visualize(pixels_virtual_two_cams)
-_, _, _, _, init_loss = arena(pixels_virtual_two_cams, pixels_real_two_cams)
+recon_3D, _, recon_1, recon_2, init_loss = arena(pixels_virtual_two_cams, pixels_real_two_cams)
+init_triangulation_loss = euclidean_distance(
+    recon_3D, 
+    target_coordinates
+)
+recon_1_loss = euclidean_distance(
+    recon_1, pixels_real_two_cams[:2,:]
+)
+recon_2_loss = euclidean_distance(
+    recon_2, pixels_real_two_cams[2:,:]
+)
 print(f'Initialization loss: {init_loss.mean()}')
-
+print(f'Triangulation loss : {init_triangulation_loss.mean()}')
+print(f'Pixel error cam1 :{recon_1_loss.mean()}. Pixel error cam2: {recon_2_loss.mean()}')
 plt.savefig(f'{outputs_dir}/initialized_arena.png')
 
 
@@ -254,9 +250,10 @@ pixels_virtual_two_cams_train, pixels_virtual_two_cams_val = random_split(
 train_loader = DataLoader(pixels_virtual_two_cams_train, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(pixels_virtual_two_cams_val, batch_size=batch_size, shuffle=False)
 
-num_epochs = 400
-optimizer = optim.Adam(arena.parameters(), lr=5e-1
+num_epochs = 2000
+optimizer = optim.Adam(arena.parameters(), lr=1e-2
                        )
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=5, factor=0.1)                       
 criterion = torch.nn.MSELoss()
 device = torch.device("cpu")
 arena.to(device)
@@ -279,19 +276,19 @@ for epoch in tqdm(range(num_epochs)):
                     plot=plot
                     )
     
+    if epoch == 20:
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = 5e-3
+
     if epoch == 150:
         for param_group in optimizer.param_groups:
-            param_group['lr'] = 1e-1
-
-    if epoch == 250:
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = 5e-2
+            param_group['lr'] = 5e-4
 
     if plot:
         plt.title(f'Epoch {epoch}')
     plot = False
     if epoch % 10 == 0:
-        print(f'Training loss for epoch {epoch}: gt_loss: {gt_loss}, dist_loss: {dist_loss}, triangulation_loss: {triangulation_loss}, closest_distance_loss: {dist_loss}')
+        print(f'Training loss for epoch {epoch}: reprojection_loss: {gt_loss}, dist_loss: {dist_loss}, triangulation_loss: {triangulation_loss}, closest_distance_loss: {dist_loss}')
         if epoch % 200 == 0:
             plot = True
     gt_train_loss_array.append(gt_loss)
@@ -302,7 +299,7 @@ for epoch in tqdm(range(num_epochs)):
              criterion=criterion,
              )
     if epoch % 10 == 0:
-        print(f'Validation loss for epoch {epoch}: gt_loss: {gt_loss}, dist_loss: {dist_loss}, triangulation_loss: {triangulation_loss}, closest_distance_loss: {dist_loss}')
+        print(f'Validation loss for epoch {epoch}: reprojection_loss: {gt_loss}, dist_loss: {dist_loss}, triangulation_loss: {triangulation_loss}, closest_distance_loss: {dist_loss}')
         # Save checkpoint
         torch.save({
                     'epoch': epoch,  # Save the current epoch
@@ -318,6 +315,8 @@ for epoch in tqdm(range(num_epochs)):
                     'optimizer_state_dict': optimizer.state_dict(),
                     'loss': gt_loss + dist_loss + triangulation_loss,
                 }, f'{model_checkpoint_dir}/best_checkpoint.pth')
+        print(f'Found a better model with validation loss for epoch {epoch}: reprojection_loss: {gt_loss}, dist_loss: {dist_loss}, triangulation_loss: {triangulation_loss}, closest_distance_loss: {dist_loss}')
+        
 
     gt_val_loss_array.append(gt_loss)
     closest_distance_val_loss_array.append(dist_loss)
@@ -338,28 +337,13 @@ test_loss = euclidean_distance(
 
 
 print(f'Triangulation loss: {test_loss.mean()}')
-#cameraMatrix1 = torch.tensor([[5707.2115, 0., 648.0465, 0.], [0, 5707.2115 , 512.79, 0.], [0., 0., 1., 0.]],
-#                             dtype=torch.float64)
-K1[0,0] = arena.camera1.focal_length_pixels
-K1[1,1] = arena.camera1.focal_length_pixels
-K1[0,2] = arena.camera1.principal_point_pixel[0]
-K1[1,2] = arena.camera1.principal_point_pixel[1]
-K1_ = torch.cat((K1, torch.tensor([[0., 0., 0.]]).T.to(torch.float64)), dim=1)
-cameraMatrix1 = K1_
-homogeneous_recon_3D_test = torch.vstack((recon_3D_test,
-                                          torch.zeros(1,recon_3D_test.shape[1], 
-                                                      dtype=torch.float64)))
-homogeneous_target_coordinates_test = torch.vstack((target_coordinates_test,
-                                          torch.zeros(1,target_coordinates_test.shape[1],
-                                                      dtype=torch.float64)))
-reprojection_pixels_test_homogeneous = cameraMatrix1 @ homogeneous_recon_3D_test
-#reprojection_pixels_test = reprojection_pixels_test_homogeneous[:2,:] / reprojection_pixels_test_homogeneous[-1,:][None,:]
-
-reprojection_error_1 = torch.linalg.norm(
-                                    recon_real_1 - pixels_real_two_cams_test[:2,:], dim=0
+reprojection_error_1 = euclidean_distance(     
+             recon_real_1,
+             pixels_real_two_cams_test[:2,:]
                                     )
-reprojection_error_2 = torch.linalg.norm(
-                                    recon_real_2 - pixels_real_two_cams_test[2:,:], dim=0
+reprojection_error_2 = euclidean_distance(
+                                    recon_real_2, 
+                                    pixels_real_two_cams_test[2:,:]
                                     )
 print(f'Reprojection error: cam_0 : {reprojection_error_1.mean()}, cam_1 : {reprojection_error_2.mean()}')
 
@@ -391,7 +375,7 @@ plt.savefig(f'{model_checkpoint_dir}/reprojection_error.png')
 
 #%% Test loss
 #%% Make plots after training
-plt.figure()
+plt.figure(figsize=(10,10))
 epochs = np.arange(0, num_epochs, 1)
 plt.loglog(epochs, gt_train_loss_array, color='b', 
          label='Ground truth train loss')
@@ -416,4 +400,3 @@ plt.savefig(f'{model_checkpoint_dir}/training_loss.png')
 #%% Visualize trained arena
 arena.visualize(pixels_virtual_two_cams_test, color_labels=True)
 plt.savefig(f'{model_checkpoint_dir}/final_arena.png')
-# %%

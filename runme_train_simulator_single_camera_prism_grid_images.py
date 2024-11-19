@@ -60,13 +60,13 @@ K2 = torch.tensor(stereoParams['CameraParameters2K'][0,0]).to(torch.float64)
 R = torch.tensor(stereoParams['RotationOfCamera2'][0,0]).to(torch.float64)
 T = torch.tensor(stereoParams['TranslationOfCamera2'][0,0]).to(torch.float64).T + 0.
 
-#principal_point_pixel_cam_0 = torch.tensor([644.6182, 524.0583]).to(torch.float64)
-#principal_point_pixel_cam_1 = torch.tensor([640., 512.]).to(torch.float64)
+principal_point_pixel_cam_0 = torch.tensor([640., 512.]).to(torch.float64)
+principal_point_pixel_cam_1 = torch.tensor([640., 512.]).to(torch.float64)
 
 principal_point_pixel_cam_0 = torch.tensor([K1[0,2] - 1, K1[1,2] - 1], dtype=torch.float64)
 principal_point_pixel_cam_1 = torch.tensor([K2[0,2] - 1, K2[1,2] - 1], dtype=torch.float64)
 
-#focal_length_cam_1 = 5602.4425 #5208. 
+#focal_length_cam_1 = 5208. 
 #focal_length_cam_2 = 5208. 
 
 focal_length_cam_1 = (K1[0,0] + K1[1,1]) /  2
@@ -351,6 +351,28 @@ for epoch in tqdm(range(num_epochs)):
     writer.add_scalar('Loss/Val_Grid_norm_error', grid_norm_loss, epoch)
     writer.add_scalar('Loss/Val_Intersection_error', intersection_loss, epoch)
     writer.add_scalar('Loss/Val_Distortion_error', distortion_loss, epoch)
+    writer.add_scalar('Parameter/prism/refractive_index_glass', arena.prism.refractive_index_glass, epoch)
+    writer.add_scalars('Parameter/prism_angles', {
+        'Angle0':arena.prism.prism_angles[0],
+         'Angle1':arena.prism.prism_angles[1],
+          'Angle2':arena.prism.prism_angles[2]},
+            epoch)
+    writer.add_scalars('Parameter/prism_size', {
+        'Size0':arena.prism.prism_size[0],
+         'Size1':arena.prism.prism_size[1],
+          'Size2':arena.prism.prism_size[2]},
+            epoch)
+    writer.add_scalars('Parameter/prism_center', {
+        'Center0':arena.prism.prism_center[0],
+         'Center1':arena.prism.prism_center[1],
+          'Center2':arena.prism.prism_center[2]},
+            epoch)
+    writer.add_scalar('Parameter/focal_length_pixels_0', arena.camera1.focal_length_pixels, epoch)
+    writer.add_scalars('Parameter/camera1_principal_point', {
+        'Angle0':arena.camera1.principal_point_pixel[0],
+         'Angle1':arena.camera1.principal_point_pixel[1]},
+            epoch)
+    
     #scheduler.step(val_loss)
     if epoch % 10 == 0:
         print(f'Validation loss for epoch {epoch}: val loss: {val_loss}, repr_loss: {repr_loss}, triangulation_loss: {triangulation_loss}, closest_distance_loss: {dist_loss}, intersection_loss: {intersection_loss}, distortion loss: {distortion_loss}, grid norm: {grid_norm_loss}')
@@ -384,7 +406,7 @@ recon_3D_test, closest_dist_test, recon_real_1, reprojection_error_test, interse
 pixels_real_two_cam_0_test_ = pixels_real_two_cams_test[:2,:].flatten(1)
 test_loss = euclidean_distance(
                             target_coordinates_test.flatten(1), recon_3D_test
-                            ).mean()
+                            )
 
 print(f'Triangulation loss: {test_loss.mean()}')
 print(f'Closest distance loss: {closest_dist_test.mean()}')
@@ -448,9 +470,9 @@ plt.savefig(f'{model_checkpoint_dir}/training_loss.png')
 fig = plt.figure(figsize=(15,15))
 ax = fig.add_subplot(projection='3d')
 ax.scatter(
-    target_coordinates_test_[0,:].detach().numpy(),
-    target_coordinates_test_[1,:].detach().numpy(),
-    target_coordinates_test_[2,:].detach().numpy(),
+    target_coordinates_test[0,:].detach().numpy(),
+    target_coordinates_test[1,:].detach().numpy(),
+    target_coordinates_test[2,:].detach().numpy(),
     color='r',
     label='Ground truth',
 )

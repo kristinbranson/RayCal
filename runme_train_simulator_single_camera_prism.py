@@ -14,7 +14,7 @@ pi = torch.tensor(np.pi, dtype=torch.float64)
 torch.autograd.set_detect_anomaly(True)
 import datetime
 import time
-from arenasEfficient import Arena_reprojection_loss_single_camera
+from arenasEfficient import Arena_reprojection_loss_single_camera_prism
 from utils import euclidean_distance
 
 
@@ -128,7 +128,7 @@ prism_angles = torch.tensor([plane.alpha, plane.beta, plane.gamma], dtype=torch.
 
 #%% Initialize an Arena instance
 prism_distance = torch.tensor(130.) # Not used if you're using fiduciary markers for initialization
-arena = Arena_reprojection_loss_single_camera(principal_point_pixel_cam_0,
+arena = Arena_reprojection_loss_single_camera_prism(principal_point_pixel_cam_0,
             principal_point_pixel_cam_1, 
             focal_length_cam_1, 
             focal_length_cam_2,
@@ -149,6 +149,7 @@ def train_two_cams(model, train_loader, criterion, plot=False):
     closest_dist_loss = 0.
     total_loss = 0.
     distortion_loss = 0.
+    tr_loss = 0.
     intersection_loss = 0.
     
     with torch.autograd.set_detect_anomaly(True):
@@ -158,7 +159,7 @@ def train_two_cams(model, train_loader, criterion, plot=False):
         for input, label_2D, label_3D in train_loader:         
             num_examples = input.shape[0]       
             optimizer.zero_grad()
-            _, closest_distance, recon_distorted_pixels_1, int_penalty_1, dist_penalty_1 = model(
+            recon_3D, closest_distance, recon_distorted_pixels_1, int_penalty_1, dist_penalty_1 = model(
                 input.T,
                 label_2D.T)
             
@@ -181,25 +182,28 @@ def train_two_cams(model, train_loader, criterion, plot=False):
             recon_real_loss = euclidean_distance(
                 recon_distorted_pixels_1, 
                 label_2D[:,:2].T).sum()
+
+            triangulation_loss = euclidean_distance(
+                                recon_3D, 
+                                label_3D.T).sum()
             
-            distortion_loss = dist_penalty_1.sum() 
+            distortion_loss = dist_penalty_1.sum()
             intersection_loss = int_penalty_1.sum() 
             closest_distance_loss = closest_distance.sum()
 
             # Recon_real_loss is the pixel error between the reprojected 3D point from real pixels and the real pixel
-            loss = recon_real_loss + (1e2 * intersection_loss + distortion_loss + closest_distance_loss)
+            loss = recon_real_loss + (1e2 * intersection_loss + distortion_loss + closest_distance_loss + 5 * triangulation_loss)
             loss.backward()
             optimizer.step()
 
             total_loss += loss.item()
             virtual_loss += 0.
+            tr_loss += triangulation_loss.item()
             real_loss += recon_real_loss.item()
             closest_dist_loss += closest_distance_loss.item()
             distortion_loss += distortion_loss.item()
             intersection_loss += intersection_loss.item()
-            
-    return total_loss / len(train_loader.dataset), virtual_loss / len(train_loader.dataset), real_loss / len(train_loader.dataset), closest_dist_loss / len(train_loader.dataset), distortion_loss / len(train_loader.dataset), intersection_loss / len(train_loader.dataset)
-
+    return total_loss / len(train_loader.dataset), virtual_loss / len(train_loader.dataset), real_loss / len(train_loader.dataset), closest_dist_loss / len(train_loader.dataset), distortion_loss / len(train_loader.dataset), intersection_loss / len(train_loader.dataset), tr_loss / len(train_loader.dataset)
 
 
 def validate(model, val_loader, criterion):
@@ -209,11 +213,12 @@ def validate(model, val_loader, criterion):
     closest_dist_loss = 0.
     total_loss = 0.
     distortion_loss = 0.
+    tr_loss = 0.
     intersection_loss = 0.
     num_batches = 0
     with torch.no_grad():
         for input, label_2D, label_3D in val_loader:
-            _, closest_distance, recon_distorted_pixels_1, int_penalty_1, dist_penalty_1 = model(input.T, label_2D.T)
+            recon_3D, closest_distance, recon_distorted_pixels_1, int_penalty_1, dist_penalty_1 = model(input.T, label_2D.T)
 
             recon_real_loss = euclidean_distance(
                 recon_distorted_pixels_1, 
@@ -222,17 +227,19 @@ def validate(model, val_loader, criterion):
             distortion_loss = dist_penalty_1.sum() 
             intersection_loss = int_penalty_1.sum() 
             closest_distance_loss = closest_distance.sum()
-
-            loss = recon_real_loss + 1e2 * intersection_loss + distortion_loss + closest_distance_loss
+            triangulation_loss = euclidean_distance(
+                                recon_3D, 
+                                label_3D.T).sum()
+            loss = recon_real_loss + 1e2 * intersection_loss + distortion_loss + closest_distance_loss + 5 * triangulation_loss
 
             total_loss += loss.item()
             virtual_loss += 0.
             real_loss += recon_real_loss.item()
+            tr_loss += triangulation_loss.item()
             intersection_loss += intersection_loss.item()
             distortion_loss += distortion_loss.item()
             closest_dist_loss += closest_distance_loss.item()
-
-    return total_loss / len(val_loader.dataset), virtual_loss / len(val_loader.dataset), real_loss / len(val_loader.dataset), closest_dist_loss / len(val_loader.dataset), distortion_loss / len(val_loader.dataset), intersection_loss / len(val_loader.dataset)
+    return total_loss / len(val_loader.dataset), virtual_loss / len(val_loader.dataset), real_loss / len(val_loader.dataset), closest_dist_loss / len(val_loader.dataset), distortion_loss / len(val_loader.dataset), intersection_loss / len(val_loader.dataset), tr_loss / len(val_loader.dataset)
 
 
 #%% Visualize arena initialization
@@ -261,7 +268,7 @@ pixels_virtual_two_cams_train, pixels_virtual_two_cams_val = random_split(
 train_loader = DataLoader(pixels_virtual_two_cams_train, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(pixels_virtual_two_cams_val, batch_size=batch_size, shuffle=False)
 
-num_epochs = 6000
+num_epochs = 350
 optimizer = optim.Adam(arena.parameters(), lr=5e-3
                        )
 criterion = torch.nn.MSELoss()
@@ -303,7 +310,7 @@ for epoch in tqdm(range(num_epochs)):
     if epoch == 2000:
         for param_group in optimizer.param_groups:
             param_group['lr'] = 5e-4
-    train_loss, train_virtual_loss, train_real_loss, train_closest_dist_loss, train_distortion_loss, train_intersection_loss = train_two_cams(model=arena, 
+    train_loss, train_virtual_loss, train_real_loss, train_closest_dist_loss, train_distortion_loss, train_intersection_loss, triangulation_loss = train_two_cams(model=arena, 
                     train_loader=train_loader, 
                     criterion=criterion,
                     plot=plot
@@ -313,7 +320,7 @@ for epoch in tqdm(range(num_epochs)):
         plt.title(f'Epoch {epoch}')
     plot = False
     if epoch % 10 == 0:
-        print(f'Training loss for epoch {epoch}: train_loss: {train_loss}, closest_dist_loss: {train_closest_dist_loss}, distortion_loss: {train_distortion_loss}, intersection_loss: {train_intersection_loss}, real_loss: {train_real_loss}')
+        print(f'Training loss for epoch {epoch}: train_loss: {train_loss}, closest_dist_loss: {train_closest_dist_loss}, distortion_loss: {train_distortion_loss}, intersection_loss: {train_intersection_loss}, real_loss: {train_real_loss}, triangulation loss {triangulation_loss}')
         if epoch % 1000 == 0:
             plot = True
     train_loss_array.append(train_loss)
@@ -323,13 +330,13 @@ for epoch in tqdm(range(num_epochs)):
     train_distortion_loss_array.append(train_distortion_loss)
     train_intersection_loss_array.append(train_intersection_loss)
 
-    val_loss, val_virtual_loss, val_real_loss, val_closest_dist_loss, val_distortion_loss,val_intersection_loss = validate(model=arena,
+    val_loss, val_virtual_loss, val_real_loss, val_closest_dist_loss, val_distortion_loss,val_intersection_loss, triangulation_loss = validate(model=arena,
              val_loader=val_loader,
              criterion=criterion,
              )
     
     if epoch % 10 == 0:
-        print(f'Validation loss for epoch {epoch}: val_loss: {val_loss}, closest_dist_loss: {val_closest_dist_loss}, distortion_loss: {val_distortion_loss}, intersection_loss: {val_intersection_loss}, real_loss: {val_real_loss}') 
+        print(f'Validation loss for epoch {epoch}: val_loss: {val_loss}, closest_dist_loss: {val_closest_dist_loss}, distortion_loss: {val_distortion_loss}, intersection_loss: {val_intersection_loss}, real_loss: {val_real_loss}, triangulation loss {triangulation_loss}') 
         # Save checkpoint
         torch.save({
                     'epoch': epoch,  # Save the current epoch
