@@ -119,6 +119,11 @@ def unfreeze_prism_parameters_subset(prism):
     for param in prism.parameters():
         param.requires_grad = True
 
+def unfreeze_all_parameters(arena):
+    for param in arena.parameters():
+        if not param.requires_grad:
+            param.requires_grad = True
+
 
 
 #%% Prism corners third plane 
@@ -423,9 +428,10 @@ for epoch in tqdm(range(num_epochs)):
 
     if epoch == 250:
         change_lr(optimizer, lr=1e-4)
-        unfreeze_camera_parameters(arena.camera1)
-        unfreeze_prism_parameters_subset(arena.prism)
-        unfreeze_stereocamera(arena)
+        #unfreeze_camera_parameters(arena.camera1)
+        #unfreeze_prism_parameters_subset(arena.prism)
+        #unfreeze_stereocamera(arena)
+        unfreeze_all_parameters(arena)
     
     train_loss, train_reprojection_loss, train_virtual_loss, train_real_loss, train_closest_dist_loss, train_distortion_loss, train_intersection_loss, triangulation_loss, train_pairwise_distance_loss = train_two_cams(model=arena, 
                     train_loader=train_loader, 
@@ -447,14 +453,6 @@ for epoch in tqdm(range(num_epochs)):
     train_distortion_loss_array.append(train_distortion_loss)
     train_intersection_loss_array.append(train_intersection_loss)
 
-    writer.add_scalar('Loss/train', train_loss, epoch)
-    writer.add_scalar('Loss/val_reprojection_error', train_reprojection_loss, epoch)
-    writer.add_scalar('Loss/val_closest_distance_error', train_distortion_loss, epoch)
-    writer.add_scalar('Loss/val_triangulation_error', triangulation_loss, epoch)
-    writer.add_scalar('Loss/val_pairwise_distance_error', train_pairwise_distance_loss, epoch)
-    writer.add_scalar('Loss/val_intersection_error', train_intersection_loss, epoch)
-    writer.add_scalar('Loss/val_distortion_error', train_distortion_loss, epoch)
-    writer.add_scalar('Parameter/prism/refractive_index_glass', arena.prism.refractive_index_glass, epoch)
 
     val_loss, val_reprojection_loss, val_virtual_loss, val_real_loss, val_closest_dist_loss, val_distortion_loss, val_intersection_loss, triangulation_loss, val_pairwise_distance_loss = validate(model=arena,
              val_loader=val_loader,
@@ -469,6 +467,27 @@ for epoch in tqdm(range(num_epochs)):
     writer.add_scalar('Loss/val_intersection_error', val_intersection_loss, epoch)
     writer.add_scalar('Loss/val_distortion_error', val_distortion_loss, epoch)
     writer.add_scalar('Parameter/prism/refractive_index_glass', arena.prism.refractive_index_glass, epoch)
+    
+    writer.add_scalars('Parameter/prism_angles', {
+        'Angle0':arena.prism.prism_angles[0],
+         'Angle1':arena.prism.prism_angles[1],
+          'Angle2':arena.prism.prism_angles[2]},
+            epoch)
+    writer.add_scalars('Parameter/prism_size', {
+        'Size0':arena.prism.prism_size[0],
+         'Size1':arena.prism.prism_size[1],
+          'Size2':arena.prism.prism_size[2]},
+            epoch)
+    writer.add_scalars('Parameter/prism_center', {
+        'Center0':arena.prism.prism_center[0],
+         'Center1':arena.prism.prism_center[1],
+          'Center2':arena.prism.prism_center[2]},
+            epoch)
+    writer.add_scalar('Parameter/focal_length_pixels_0', arena.camera1.focal_length_pixels, epoch)
+    writer.add_scalars('Parameter/camera1_principal_point', {
+        'Angle0':arena.camera1.principal_point_pixel[0],
+         'Angle1':arena.camera1.principal_point_pixel[1]},
+            epoch)
 
     if epoch % 10 == 0:
         print(f'Validation loss for epoch {epoch}: val_loss: {val_loss}, reprojection error: {val_reprojection_loss}, closest_dist_loss: {val_closest_dist_loss}, triangulation loss {triangulation_loss}, distortion loss: {val_distortion_loss}, intersection loss: {val_intersection_loss}')
