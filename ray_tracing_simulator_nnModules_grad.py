@@ -1070,12 +1070,13 @@ class EfficientCamera(Plane, nn.Module):
         return normalized_pixels
     
     
-    def calculate_distortion_penalty(self, distorted_pixels):
+    def calculate_distortion_penalty(self, distorted_pixels, distortion_params):
         """
         This function makes sure that the distortion and undistortion function are inversely related to each other
         """
-        undistorted_pixels = self.undistort_pixels_MLP(distorted_pixels)
-        return euclidean_distance(undistorted_pixels, distorted_pixels)
+        undistorted_pixels = self.undistort_pixels_classical(distorted_pixels, distortion_params)
+        redistorted_pixels = self.distort_pixels_classical(undistorted_pixels, distortion_params)
+        return euclidean_distance(redistorted_pixels, distorted_pixels)
 
 
     def get_ray_direction(self, pixel):

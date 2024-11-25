@@ -76,6 +76,9 @@ focal_length_cam_2 = (K2[0,0] + K2[1,1]) /  2
 writer = SummaryWriter(log_dir=f'{outputs_dir}/logs/{model_checkpoint_dir}')
 print(f'To visualize tensorboard log, run: tensorboard --logdir={outputs_dir}/logs/{model_checkpoint_dir}')
 
+def change_lr(optimizer, lr):
+    for param_group in optimizer.param_groups:
+            param_group['lr'] = lr
 
 #%% Freeze parameters
 def freeze_camera_parameters(camera):
@@ -101,6 +104,22 @@ def freeze_stereocamera(arena):
 def freeze_prism_parameters_subset(arena):
     arena.prism.prism_size.requires_grad = False
     arena.prism.refractive_index_glass.requires_grad = False
+
+def unfreeze_camera_parameters(camera):
+    for param in camera.parameters():
+        param.requires_grad = True
+
+def unfreeze_stereocamera(arena):
+    arena.focal_length_cam_1.requires_grad = True
+    arena.principal_point_pixel_cam_1.requires_grad = True
+    arena.stereo_camera_angles.requires_grad = True
+    arena.stereocam_r1.requires_grad = True
+
+def unfreeze_prism_parameters_subset(prism):
+    for param in prism.parameters():
+        param.requires_grad = True
+
+
 
 #%% Prism corners third plane 
 prism_annotated_face = 'first'
@@ -189,7 +208,7 @@ def train_two_cams(model, train_loader, criterion, plot=False):
             recon_3D, closest_distance, recon_pixels_1, recon_pixels_2, recon_distorted_virtual_pixels_1, recon_distorted_virtual_pixels_2, recon_distorted_real_pixels_1, recon_distorted_real_pixels_2, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2, pairwise_distance_recon = model(
                 input.T,
                 label_2D.T)
-            
+
             d_pairwise_distance = (pairwise_distance_recon - pairwise_distance_batch)
             pairwise_distance_loss = torch.abs(d_pairwise_distance).sum() # Sum of root squared error
             label_2D_cam_0 = torch.vstack((label_2D[:,:2], label_2D[:,2:4]))
@@ -248,24 +267,24 @@ def train_two_cams(model, train_loader, criterion, plot=False):
             triangulation_loss = euclidean_distance(
                                     recon_3D, stacked_label_3D.T
                                 ).sum() / 2
-            distortion_loss = dist_penalty_1.sum() + dist_penalty_2.sum()
-            intersection_loss = int_penalty_1.sum() + int_penalty_2.sum()
+            
+            distortion_loss = (dist_penalty_1.sum() + dist_penalty_2.sum()) / 2
+            intersection_loss = (int_penalty_1.sum() + int_penalty_2.sum()) / 2
             closest_distance_loss = closest_distance.sum()
-            tr_loss += triangulation_loss.item()
-
+            tr_loss += triangulation_loss.item()            
             # Recon_real_loss is the pixel error between the reprojected 3D point from real pixels and the real pixel
-            loss = (1e1 * overall_reprojection_loss) + (1e3 * intersection_loss) + 0 * distortion_loss + (1e1 * closest_distance_loss) + (5e3 * pairwise_distance_loss)
+            loss = (1e1 * recon_virtual_loss) + (1e3 * intersection_loss) + 0 * distortion_loss + (1e1 * closest_distance_loss) + (5e3 * pairwise_distance_loss)
             loss.backward()
             optimizer.step()
-
             total_loss += loss.item()
             virtual_loss += recon_virtual_loss.item()
             real_loss += recon_real_loss.item()
             closest_dist_loss += closest_distance_loss.item()
             distortion_loss += distortion_loss.item()
             intersection_loss += intersection_loss.item()
-            reprojection_loss += overall_reprojection_loss.item()     
-            pairwise_dist_loss += pairwise_distance_loss.item()   
+            reprojection_loss += recon_virtual_loss.item()     
+            pairwise_dist_loss += pairwise_distance_loss.item()       
+
     return total_loss / len(train_loader.dataset), reprojection_loss / len(train_loader.dataset), virtual_loss / len(train_loader.dataset), real_loss / len(train_loader.dataset), closest_dist_loss / len(train_loader.dataset), distortion_loss / len(train_loader.dataset), intersection_loss / len(train_loader.dataset), tr_loss / len(train_loader.dataset), pairwise_dist_loss / len(train_loader.dataset)
 
 
@@ -315,11 +334,11 @@ def validate(model, val_loader, criterion):
             triangulation_loss = euclidean_distance(
                                     recon_3D, stacked_label_3D.T
                                 ).sum() / 2
-
-            distortion_loss = dist_penalty_1.sum() + dist_penalty_2.sum()
-            intersection_loss = int_penalty_1.sum() + int_penalty_2.sum()
+            
+            distortion_loss = (dist_penalty_1.sum() + dist_penalty_2.sum()) / 2
+            intersection_loss = (int_penalty_1.sum() + int_penalty_2.sum()) / 2
             closest_distance_loss = closest_distance.sum()
-            loss = (1e1 * overall_reprojection_loss) + (1e3 * intersection_loss) + (0 * distortion_loss) + (1e1 * closest_distance_loss) + (5e3 * pairwise_distance_loss)
+            loss = (1e1 * recon_virtual_loss) + (1e3 * intersection_loss) + (0 * distortion_loss) + (1e1 * closest_distance_loss) + (5e3 * pairwise_distance_loss)
 
             total_loss += loss.item()
             virtual_loss += recon_virtual_loss.item()
@@ -328,7 +347,7 @@ def validate(model, val_loader, criterion):
             distortion_loss += distortion_loss.item()
             closest_dist_loss += closest_distance_loss.item()
             tr_loss += triangulation_loss.item()
-            reprojection_loss += overall_reprojection_loss.item()
+            reprojection_loss += recon_virtual_loss.item()
             pairwise_dist_loss += pairwise_distance_loss.item()
 
     return total_loss / len(val_loader.dataset), reprojection_loss / len(val_loader.dataset), virtual_loss / len(val_loader.dataset), real_loss / len(val_loader.dataset), closest_dist_loss / len(val_loader.dataset), distortion_loss / len(val_loader.dataset), intersection_loss / len(val_loader.dataset), tr_loss / len(val_loader.dataset), pairwise_dist_loss / len(val_loader.dataset)
@@ -362,8 +381,8 @@ pixels_virtual_two_cams_train, pixels_virtual_two_cams_val = random_split(
 train_loader = DataLoader(pixels_virtual_two_cams_train, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(pixels_virtual_two_cams_val, batch_size=batch_size, shuffle=False)
 
-num_epochs = 1000
-optimizer = optim.Adam(arena.parameters(), lr=1e-2
+num_epochs = 300
+optimizer = optim.Adam(arena.parameters(), lr=5e-2
                        )
 criterion = torch.nn.MSELoss()
 device = torch.device("cpu")
@@ -391,18 +410,24 @@ closest_distance_train_loss_array = []
 gt_val_loss_array = []
 closest_distance_val_loss_array = []
 best_loss = 1e100
-
+#%%
+num_epochs = 500
 
 plot = False
 for epoch in tqdm(range(num_epochs)):
-    if epoch == 300:
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = 5e-3
-    if epoch == 400:
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = 2e-4
+    if epoch == 100:
+        change_lr(optimizer, lr=5e-3)
+
+    if epoch == 200:
+        change_lr(optimizer, lr=5e-4)
+
+    if epoch == 250:
+        change_lr(optimizer, lr=1e-4)
+        unfreeze_camera_parameters(arena.camera1)
+        unfreeze_prism_parameters_subset(arena.prism)
+        unfreeze_stereocamera(arena)
     
-    train_loss, train_reprojection_loss, train_virtual_loss, train_real_loss, train_closest_dist_loss, train_distortion_loss, train_intersection_loss, triangulation_loss, pairwise_distance_loss_train = train_two_cams(model=arena, 
+    train_loss, train_reprojection_loss, train_virtual_loss, train_real_loss, train_closest_dist_loss, train_distortion_loss, train_intersection_loss, triangulation_loss, train_pairwise_distance_loss = train_two_cams(model=arena, 
                     train_loader=train_loader, 
                     criterion=criterion,
                     plot=plot
@@ -412,7 +437,7 @@ for epoch in tqdm(range(num_epochs)):
         plt.title(f'Epoch {epoch}')
     plot = False
     if epoch % 10 == 0:
-        print(f'Training loss for epoch {epoch}: train_loss: {train_loss}, reprojection loss: {train_reprojection_loss}, closest_dist_loss: {train_closest_dist_loss}, triangulation loss : {triangulation_loss}, intersection loss: {train_intersection_loss}')
+        print(f'Training loss for epoch {epoch}: train_loss: {train_loss}, reprojection loss: {train_reprojection_loss}, closest_dist_loss: {train_closest_dist_loss}, triangulation loss : {triangulation_loss}, intersection loss: {train_intersection_loss}, distortion loss: {train_distortion_loss}')
         if epoch % 200 == 0:
             plot = True
     train_loss_array.append(train_loss)
@@ -422,13 +447,31 @@ for epoch in tqdm(range(num_epochs)):
     train_distortion_loss_array.append(train_distortion_loss)
     train_intersection_loss_array.append(train_intersection_loss)
 
-    val_loss, val_reprojection_loss, val_virtual_loss, val_real_loss, val_closest_dist_loss, val_distortion_loss,val_intersection_loss, triangulation_loss, pairwise_distance_loss_val = validate(model=arena,
+    writer.add_scalar('Loss/train', train_loss, epoch)
+    writer.add_scalar('Loss/val_reprojection_error', train_reprojection_loss, epoch)
+    writer.add_scalar('Loss/val_closest_distance_error', train_distortion_loss, epoch)
+    writer.add_scalar('Loss/val_triangulation_error', triangulation_loss, epoch)
+    writer.add_scalar('Loss/val_pairwise_distance_error', train_pairwise_distance_loss, epoch)
+    writer.add_scalar('Loss/val_intersection_error', train_intersection_loss, epoch)
+    writer.add_scalar('Loss/val_distortion_error', train_distortion_loss, epoch)
+    writer.add_scalar('Parameter/prism/refractive_index_glass', arena.prism.refractive_index_glass, epoch)
+
+    val_loss, val_reprojection_loss, val_virtual_loss, val_real_loss, val_closest_dist_loss, val_distortion_loss, val_intersection_loss, triangulation_loss, val_pairwise_distance_loss = validate(model=arena,
              val_loader=val_loader,
              criterion=criterion,
              )
     
+    writer.add_scalar('Loss/val', val_loss, epoch)
+    writer.add_scalar('Loss/val_reprojection_error', val_reprojection_loss, epoch)
+    writer.add_scalar('Loss/val_closest_distance_error', val_distortion_loss, epoch)
+    writer.add_scalar('Loss/val_triangulation_error', triangulation_loss, epoch)
+    writer.add_scalar('Loss/val_pairwise_distance_error', val_pairwise_distance_loss, epoch)
+    writer.add_scalar('Loss/val_intersection_error', val_intersection_loss, epoch)
+    writer.add_scalar('Loss/val_distortion_error', val_distortion_loss, epoch)
+    writer.add_scalar('Parameter/prism/refractive_index_glass', arena.prism.refractive_index_glass, epoch)
+
     if epoch % 10 == 0:
-        print(f'Validation loss for epoch {epoch}: val_loss: {val_loss}, reprojection error: {val_reprojection_loss}, closest_dist_loss: {val_closest_dist_loss}, triangulation loss {triangulation_loss}')
+        print(f'Validation loss for epoch {epoch}: val_loss: {val_loss}, reprojection error: {val_reprojection_loss}, closest_dist_loss: {val_closest_dist_loss}, triangulation loss {triangulation_loss}, distortion loss: {val_distortion_loss}, intersection loss: {val_intersection_loss}')
         # Save checkpoint
         torch.save({
                     'epoch': epoch,  # Save the current epoch
@@ -440,7 +483,7 @@ for epoch in tqdm(range(num_epochs)):
                     'closest_dist_loss': val_closest_dist_loss,
                     'distortion_loss': val_distortion_loss,
                     'intersection_loss': val_intersection_loss,
-                    'pairwise_distance_loss_train': pairwise_distance_loss_train,
+                    'train_pairwise_distance_loss': train_pairwise_distance_loss,
                 }, f'{model_checkpoint_dir}/checkpoint_{epoch}.pth')
     if val_loss < best_loss:
         best_loss = val_loss
@@ -450,9 +493,10 @@ for epoch in tqdm(range(num_epochs)):
                     'optimizer_state_dict': optimizer.state_dict(),
                     'loss': val_loss,
                 }, f'{model_checkpoint_dir}/best_checkpoint.pth')
-        print(f'Found better model with validation loss for epoch {epoch}: val_loss: {val_loss}, reprojection error: {val_reprojection_loss}, closest_dist_loss: {val_closest_dist_loss}, triangulation loss {triangulation_loss}, pairwise_distance_loss: {pairwise_distance_loss_val}, intersection loss: {val_intersection_loss}')
+        print(f'Found better model with validation loss for epoch {epoch}: val_loss: {val_loss}, reprojection error: {val_reprojection_loss}, closest_dist_loss: {val_closest_dist_loss}, triangulation loss {triangulation_loss}, pairwise_distance_loss: {val_pairwise_distance_loss}, intersection loss: {val_intersection_loss}')
     gt_train_loss_array.append(train_loss)
     gt_val_loss_array.append(val_loss)
+    closest_distance_train_loss_array.append(val_closest_dist_loss)
 
 
 
@@ -463,7 +507,8 @@ checkpoint = torch.load(PATH, weights_only=True)
 arena.load_state_dict(checkpoint['model_state_dict'])
 # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
-recon_3D_test, closest_dist_test, recon_pixels_1, recon_pixels_2, recon_distorted_virtual_pixels_1, recon_distorted_virtual_pixels_2, recon_distorted_real_pixels_1, recon_distorted_real_pixels_2, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2, pairwise_distance = arena(pixels_virtual_two_cams_test, pixels_real_two_cams_test)
+recon_3D_test, closest_dist_test, recon_pixels_1, recon_pixels_2, recon_distorted_virtual_pixels_1, recon_distorted_virtual_pixels_2, recon_distorted_real_pixels_1, recon_distorted_real_pixels_2, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2, pairwise_distance_test_ = arena(pixels_virtual_two_cams_test, pixels_real_two_cams_test)
+pairwise_distance_loss = torch.abs(pairwise_distance_test_ - pairwise_distance_test).mean()
 target_coordinates_test_stacked = torch.hstack((target_coordinates_test[:3,:], target_coordinates_test[3:,:]))
 triangulation_loss = euclidean_distance(
     recon_3D_test, target_coordinates_test_stacked
@@ -480,6 +525,7 @@ recon_real_loss = (euclidean_distance(
 print(f'Triangulation loss: {triangulation_loss}')
 print(f'Distortion penalty: {(dist_penalty_1 + dist_penalty_2).mean()}')
 print(f'Real pixel loss: {recon_real_loss.mean()}')
+print(f'Pairwise distance loss: {pairwise_distance_loss.mean()}')
 
 reprojection_loss_1 = euclidean_distance(
     recon_pixels_1, pixels_real_cam_0_test_stacked
@@ -492,33 +538,62 @@ print(f'Reprojection error for two cameras: {reprojection_loss_1.mean()}, {repro
 
 plt.figure(figsize=(15,15))
 plt.scatter(
-    recon_distorted_virtual_pixels_1[0,:].detach().numpy(),
-    recon_distorted_virtual_pixels_1[1,:].detach().numpy(),
+    recon_pixels_1[0,:].detach().numpy(),
+    recon_pixels_1[1,:].detach().numpy(),
     color='g',
     marker='o',
     label='Estimate',
 )
 plt.scatter(
-    pixels_real_two_cams_test[0,:].detach().numpy(),
-    pixels_real_two_cams_test[1,:].detach().numpy(),
+    pixels_real_cam_0_test_stacked[0,:].detach().numpy(),
+    pixels_real_cam_0_test_stacked[1,:].detach().numpy(),
     color='r',
     marker='x',
     label='Ground truth',
 )
 ax = plt.gca()
 ax.set_aspect('equal')
-ax.set_xlabel('X (pixels)', fontsize=18)
-ax.set_ylabel('Y (pixels)', fontsize=18)
+ax.set_xlabel('X (pixels)', fontsize=22)
+ax.set_ylabel('Y (pixels)', fontsize=22)
+ax.set_xticklabels(ax.get_xticks(), fontsize=18)
+ax.set_yticklabels(ax.get_yticks(), fontsize=18)
 ax.set_title(f'Reprojection error: {reprojection_loss_1.mean():.2f} pixels', fontsize=16)
 plt.legend(fontsize=18)
 plt.savefig(f'{model_checkpoint_dir}/reprojection_loss.png')
 
 
+#%%
+fig = plt.figure(figsize=(15,15))
+ax = fig.add_subplot(projection='3d')
+ax.scatter(
+    target_coordinates_test_stacked[0,:].detach().numpy(),
+    target_coordinates_test_stacked[1,:].detach().numpy(),
+    target_coordinates_test_stacked[2,:].detach().numpy(),
+    color='r',
+    s=5,
+    label='Ground truth',
+)
+ax.scatter(
+    recon_3D_test[0,:].detach().numpy(),
+    recon_3D_test[1,:].detach().numpy(),
+    recon_3D_test[2,:].detach().numpy(),
+    color='g',
+    s=5,
+    label='Estimate',
+)
+ax.set_xlabel('X (mm)', fontsize=22)
+ax.set_ylabel('Y (mm)', fontsize=22)
+ax.set_zlabel('Z (mm)', fontsize=22)
+ax.set_xticklabels(ax.get_xticks(), fontsize=18)
+ax.set_yticklabels(ax.get_yticks(), fontsize=18)
+ax.set_zticklabels(ax.get_zticks(), fontsize=18)
+plt.savefig(f'{model_checkpoint_dir}/3D_scatter.png')
+
 
 #%% Test loss
 #%% Make plots after training
 plt.figure(figsize=(15,15))
-epochs = np.arange(0,num_epochs)
+epochs = np.arange(0,len(gt_train_loss_array))
 plt.plot(epochs,gt_train_loss_array, color='b', 
          label='Ground truth train loss')
 plt.plot(epochs,closest_distance_train_loss_array, 
@@ -531,9 +606,12 @@ plt.plot(epochs, closest_distance_val_loss_array,
          color='r', 
          label='Closest distance val loss',
          linestyle='--')
-plt.legend(fontsize=16)
-plt.xlabel('Epochs', fontsize=18)
-plt.ylabel('Loss (mm)', fontsize=18)
+plt.legend(fontsize=18)
+plt.xlabel('Epochs', fontsize=22)
+plt.ylabel('Loss (mm)', fontsize=22)
+ax.set_xticklabels(ax.get_xticks(), fontsize=18)
+ax.set_yticklabels(ax.get_yticks(), fontsize=18)
+ax.set_zticklabels(ax.get_zticks(), fontsize=18)
 plt.savefig(f'{model_checkpoint_dir}/training_loss.png')
 
 
