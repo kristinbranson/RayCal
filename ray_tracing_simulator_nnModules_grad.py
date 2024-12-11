@@ -13,8 +13,8 @@ import os
 import scipy.io as sio
 import torch.nn as nn
 from utils import euclidean_distance
-#mpl.use('TkAgg') # Use this if working on the PC
-mpl.use('QtAgg') # Use this if working remotely with NoMachine
+mpl.use('TkAgg') # Use this if working on the PC
+#mpl.use('QtAgg') # Use this if working remotely with NoMachine
 plt.ion()
 
 pi = torch.tensor(np.pi).to(torch.float64)
@@ -91,8 +91,10 @@ class Ray():
         
         if (origin is not None) and (direction is not None):
             self.origin = origin
-            direction = direction / torch.linalg.vector_norm(direction, dim=0).to(torch.float64)
-            self.direction = direction
+            good_rays_mask = torch.linalg.vector_norm(direction, dim=0) > 1e-1
+            direction[:,good_rays_mask] = direction[:,good_rays_mask] / torch.linalg.vector_norm(direction[:,good_rays_mask], dim=0)
+            direction[:,~good_rays_mask] = 0.
+            self.direction = direction.to(torch.float64)
 
         if (origin is not None) and (target is not None):
             self.build_ray(origin=origin, target=target)
@@ -240,6 +242,11 @@ class Plane(nn.Module):
         self.b = b
         self.center = center        
         if axes is None:
+            if not isinstance(alpha, torch.Tensor):
+                alpha = torch.tensor(alpha, dtype=torch.float64)
+                beta = torch.tensor(beta, dtype=torch.float64)
+                gamma = torch.tensor(gamma, dtype=torch.float64)
+
             if alpha.dtype != torch.float64:
                 alpha = alpha.to(torch.float64)
                 beta = beta.to(torch.float64)
@@ -370,7 +377,9 @@ class Plane(nn.Module):
         Returns:
         - intersection (np.array): Intersection point.
         """
-        ray_t = torch.mm((self.center - ray.origin).T, self.axes[:,0].unsqueeze(-1)) / torch.mm(ray.direction.T, self.axes[:,0].unsqueeze(-1))
+        good_rays_mask = torch.linalg.vector_norm(ray.direction, dim=0) > 1e-1
+        ray_t = torch.zeros_like(ray.t)
+        ray_t[good_rays_mask,:] = torch.mm((self.center - ray.origin[:, good_rays_mask]).T, self.axes[:,0].unsqueeze(-1)) / torch.mm(ray.direction[:, good_rays_mask].T, self.axes[:,0].unsqueeze(-1))
         ray.t = ray_t.clone().detach()
         intersection = ray.origin + ray_t.t() * ray.direction
         # Check if the ray intersects the plane
@@ -379,6 +388,10 @@ class Plane(nn.Module):
         distance_vertical = torch.mm(self.axes[:,2][:,None].T, d_intersection)
         intersection_penalty = torch.cat((distance_horizontal - self.a / 2, distance_vertical - self.b / 2), dim=0)
         intersection_penalty = torch.sum(torch.relu(intersection_penalty)**2, dim=0)
+
+        # Intersection in the backward direction is bad
+        bad_rays_mask = torch.logical_or(ray_t < 0, ~good_rays_mask.unsqueeze(-1))
+        intersection_penalty[bad_rays_mask[:,0]] = -10 # There is no other way that intersection penalty can be  negative (because relu)
         return intersection, intersection_penalty
 
 
@@ -523,12 +536,14 @@ class RefractingPlane(Plane, nn.Module):
         Total internal reflection is handled by setting the direction of the refracted ray to 0
         """
 
-        bad_rays_mask = ~(torch.linalg.vector_norm(ray.direction, dim=0) > 1e-1)
         if self.center.dtype != ray.origin.dtype:
             self.center = self.center.to(ray.origin.dtype)
-            
+
         intersection, intersection_penalty = self.get_intersection(ray)
-        
+        bad_rays_mask = torch.logical_or(~(torch.linalg.vector_norm(ray.direction, dim=0) > 1e-1),
+                          (ray.t < 0).unsqueeze(-1))[:,0]        
+        bad_rays_mask = torch.logical_or(bad_rays_mask, (intersection_penalty == -10).unsqueeze(-1))    
+        intersection_penalty[intersection_penalty == -10] = 0
         refractive_idx_1 = self.refractive_idx_1
         refractive_idx_2 = self.refractive_idx_2
         
@@ -553,7 +568,7 @@ class RefractingPlane(Plane, nn.Module):
         tir_mask = (1 - sinr**2) < 0. # Total internal reflection
         cosr = torch.sqrt(1 - (sinr * (~tir_mask))**2) 
         
-        bad_rays_mask = bad_rays_mask * tir_mask
+        bad_rays_mask = torch.logical_or(bad_rays_mask, tir_mask)
         normal_component = cosr - ref_ratio * cosi
         incident_ray_component = ref_ratio
         refracted_ray_direction = normal_component * self.axes[:,0].unsqueeze(-1) * normal_multiplier + incident_ray_component * ray.direction
@@ -570,10 +585,14 @@ class ReflectingPlane(Plane, nn.Module):
         super(ReflectingPlane, self).__init__(axes=axes, center=center, alpha=alpha, beta=beta, gamma=gamma, a=a, b=b) 
     
     def forward(self, ray):
-        bad_rays_mask = ~(torch.linalg.vector_norm(ray.direction, dim=0) > 1e-1)
         if self.center.dtype != ray.origin.dtype:
             self.center = self.center.to(ray.origin.dtype)
         intersection, intersection_penalty = self.get_intersection(ray)
+
+        bad_rays_mask = torch.logical_or(~(torch.linalg.vector_norm(ray.direction, dim=0) > 1e-1),
+                          (ray.t < 0).unsqueeze(-1))[:,0]        
+        bad_rays_mask = torch.logical_or(bad_rays_mask, (intersection_penalty == -10).unsqueeze(-1)) 
+        intersection_penalty[intersection_penalty == -10] = 0
         #normal = self.angles_to_normal(alpha=self.alpha, beta=self.beta, gamma=self.gamma)
         cosi = torch.mm(ray.direction.T, self.axes[:,0].unsqueeze(-1)).T
         normal_multiplier = torch.ones(cosi.shape)
@@ -1262,6 +1281,7 @@ class Prism(nn.Module):
         ray3, intersection_penalty_3 = plane3(ray2)
         return ray1, ray2, ray3, intersection_penalty_1 + intersection_penalty_2 + intersection_penalty_3
     
+
     def visualize_prism(self, fig=None, ax=None):
         if fig is None:
             fig = plt.figure(figsize=(10,10))
@@ -1278,6 +1298,7 @@ class Prism(nn.Module):
         ax.set_aspect('equal', adjustable='datalim')    
         return fig, ax
     
+
     def visualize_prism_and_ray(self, incident_ray, fig=None, ax=None, color_labels=None):
         if fig is None:
             fig = plt.figure(figsize=(10,10))
@@ -1301,6 +1322,7 @@ class Prism(nn.Module):
         ax.set_aspect('equal', adjustable='datalim')    
         return fig, ax
     
+
 def closest_point(ray1, ray2):
     """
     Returns the closest point between two rays, and the closest distance between the rays
@@ -1309,9 +1331,20 @@ def closest_point(ray1, ray2):
     n2 = torch.linalg.cross(ray2.direction, n, dim=0)
     n1 = torch.linalg.cross(ray1.direction, n, dim=0)
 
-    c1 = ray1.origin + ((torch.linalg.vecdot(ray2.origin - ray1.origin, n2, dim=0)) / torch.linalg.vecdot(ray1.direction, n2, dim=0).unsqueeze(0)) * ray1.direction
-    c2 = ray2.origin + ((torch.linalg.vecdot(ray1.origin - ray2.origin, n1, dim=0)) / torch.linalg.vecdot(ray2.direction, n1, dim=0).unsqueeze(0)) * ray2.direction
+    c1 = torch.zeros_like(ray1.origin)
+    c2 = torch.zeros_like(ray2.origin)
+    good_rays_mask_1 = torch.linalg.vector_norm(ray1.direction, dim=0) != 0.0  
+    good_rays_mask_2 = torch.linalg.vector_norm(ray2.direction, dim=0) != 0.0  
+    good_rays_mask = torch.logical_and(good_rays_mask_1, good_rays_mask_2)
+    c1[:,good_rays_mask] = ray1.origin[:,good_rays_mask] + ((torch.linalg.vecdot(ray2.origin[:,good_rays_mask] - ray1.origin[:,good_rays_mask], n2[:,good_rays_mask], dim=0)) / torch.linalg.vecdot(ray1.direction[:,good_rays_mask], n2[:,good_rays_mask], dim=0).unsqueeze(0)) * ray1.direction[:,good_rays_mask]
+    c2[:,good_rays_mask] = ray2.origin[:,good_rays_mask] + ((torch.linalg.vecdot(ray1.origin[:,good_rays_mask] - ray2.origin[:,good_rays_mask], n1[:,good_rays_mask], dim=0)) / torch.linalg.vecdot(ray2.direction[:,good_rays_mask], n1[:,good_rays_mask], dim=0).unsqueeze(0)) * ray2.direction[:,good_rays_mask]
+    
+    # Rays with direction vector [0.,0.,0.] are 'bad rays' and should be ignored later. For now, we replace the nans with 0.
+    c1[:,~good_rays_mask] = 0. 
+    c2[:,~good_rays_mask] = 0.
+
     return (c1 + c2) / 2, torch.linalg.norm(c1 - c2, dim=0)
+
 
 
 # %% Arena class
@@ -1342,7 +1375,7 @@ class Arena(nn.Module):
         refractive_index_glass = nn.Parameter(torch.tensor(1.5), requires_grad=True)
         self.prism = Prism(
             refractive_index_glass=refractive_index_glass,
-            prism_size=[30.,30.,30.], 
+            prism_size=[30., 30., 30.], 
             prism_center=prism_center, 
             prism_angles=prism_angles)        
 
