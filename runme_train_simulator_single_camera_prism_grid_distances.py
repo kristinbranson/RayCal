@@ -320,14 +320,14 @@ plt.savefig(f'{outputs_dir}/initialized_arena.png')
 batch_size=1028
 rand_ind = torch.randperm(virtual_pixels_cam_0.shape[1])
 test_dataset_size = 150
-virtual_pixels_cam_0_train_val = virtual_pixels_cam_0[:,test_dataset_size:]
-real_pixels_cam_0_train_val = real_pixels_cam_0[:, test_dataset_size:]
-target_coordinates_train_val = target_coordinates[:, test_dataset_size:]
-pairwise_distance_train_val = pairwise_distance[test_dataset_size:]
-virtual_pixels_cam_0_test = virtual_pixels_cam_0[:, :test_dataset_size]
-target_coordinates_test = target_coordinates[:, :test_dataset_size]
-real_pixels_cam_0_test = real_pixels_cam_0[:, :test_dataset_size]
-pairwise_distance_test = pairwise_distance[:test_dataset_size]
+virtual_pixels_cam_0_train_val = virtual_pixels_cam_0[:,rand_ind[test_dataset_size:]]
+real_pixels_cam_0_train_val = real_pixels_cam_0[:, rand_ind[test_dataset_size:]]
+target_coordinates_train_val = target_coordinates[:, rand_ind[test_dataset_size:]]
+pairwise_distance_train_val = pairwise_distance[rand_ind[test_dataset_size:]]
+virtual_pixels_cam_0_test = virtual_pixels_cam_0[:, rand_ind[:test_dataset_size]]
+target_coordinates_test = target_coordinates[:, rand_ind[:test_dataset_size]]
+real_pixels_cam_0_test = real_pixels_cam_0[:, rand_ind[:test_dataset_size]]
+pairwise_distance_test = pairwise_distance[rand_ind[:test_dataset_size]]
 
 dataset = CalibrationDataset(virtual_pixels_cam_0_train_val, real_pixels_cam_0_train_val, target_coordinates_train_val, pairwise_distance_train_val)
 train_size = int(0.8 * len(dataset))  # 80% for training
