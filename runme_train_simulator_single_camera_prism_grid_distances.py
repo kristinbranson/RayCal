@@ -205,8 +205,8 @@ arena = Arena_single_camera_prism_grid_distance(principal_point_pixel_cam_0,
             principal_point_pixel_cam_0, 
             focal_length_cam_0, 
             focal_length_cam_0,
-            None,
-            None, 
+            R_stereo_cam=None,
+            T_stereo_cam=None, 
             prism_angles=prism_angles,
             prism_center=prism_center,
             prism_size=prism_a)
@@ -338,7 +338,7 @@ train_dataset, val_dataset = random_split(
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
-num_epochs = 750
+num_epochs = 1000
 lr = 1e-2
 optimizer = optim.Adam(arena.parameters(), lr=lr
                        )
@@ -358,7 +358,7 @@ closest_distance_val_loss_array = []
 best_loss = 1e100
 
 #%%
-scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=5, factor=0.1)
+#scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=5, factor=0.1)
 plot = False
 for epoch in tqdm(range(num_epochs)):
     train_loss, repr_loss, dist_loss, triangulation_loss, pairwise_distance_loss, intersection_loss, distortion_loss = train_two_cams(model=arena, 
@@ -366,23 +366,23 @@ for epoch in tqdm(range(num_epochs)):
                     criterion=criterion,
                     plot=plot
                     )
-    
-    if epoch == 150:
+    if epoch == 100:
         for param_group in optimizer.param_groups:
             param_group['lr'] = 5e-3
 
-    if epoch == 200:        
+    if epoch == 150:        
         for param_group in optimizer.param_groups:
             param_group['lr'] = 1e-3
-    
+
     if epoch == 500:
         for param_group in optimizer.param_groups:            
             param_group['lr'] = 5e-4
-            unfreeze_all_parameters(arena)
+        unfreeze_all_parameters(arena)
 
     if epoch == 650:
         for param_group in optimizer.param_groups:            
             param_group['lr'] = 1e-4
+    
 
     if plot:
         plt.title(f'Epoch {epoch}')
@@ -549,8 +549,31 @@ ax.set_yticklabels(ax.get_yticks(), fontsize=18)
 ax.set_zticklabels(ax.get_zticks(), fontsize=18)
 plt.savefig(f'{model_checkpoint_dir}/3D_scatter.png')
 
+#%%
+reprojection_error_1 = reprojection_error_1.detach().numpy()
+import matplotlib.ticker as ticker
+fig = plt.figure(figsize=(10,10))
+ax = fig.add_subplot()
+Q1 = np.percentile(reprojection_error_1, 25)
+Q3 = np.percentile(reprojection_error_1, 75)
+IQR = Q3 - Q1
+n = len(reprojection_error_1)
+
+# Calculate bin width using Freedman-Diaconis rule
+bin_width = 2 * IQR / (n ** (1/3))
+
+# Calculate number of bins
+data_range = np.max(reprojection_error_1) - np.min(reprojection_error_1)
+num_bins = int(np.ceil(data_range / bin_width))
+ax.hist(reprojection_error_1, bins=num_bins, edgecolor='black')
+ax.set_xticklabels(ax.get_xticks(), fontsize=18)
+ax.set_yticklabels(ax.get_yticks(), fontsize=18)
+plt.gca().xaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
+ax.set_xlabel('Reprojection error (pixels)', fontsize=28)
+
 #%% Visualize trained arena
-arena.visualize(real_pixels_cam_0_test, virtual_pixels_cam_0_test, color_labels=True)
+fig, ax = arena.visualize(real_pixels_cam_0_test, virtual_pixels_cam_0_test, color_labels=True)
 plt.savefig(f'{model_checkpoint_dir}/final_arena.png')
+
 
 # %%
