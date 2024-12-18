@@ -27,12 +27,21 @@ images_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/e
 
 # %% Click event
 coordinates = []
+global flag # To continue with the same keypoint. flag = 0 to move to the next keypoint
+flag = 1
 def onclick(event):
+    global flag
     # Check if the click is within the image boundaries
-    if event.xdata is not None and event.ydata is not None:
+    if event.button == 3:
+        print('Right click. Exiting the annotation')
+        flag = 0
+        
+    if event.xdata is not None and event.ydata is not None and event.button == 1:
         # Store the (x, y) coordinates
         coordinates.append((event.xdata, event.ydata))
         print(f"Clicked at: ({event.xdata}, {event.ydata})")
+
+
 
 
 # %%
@@ -54,6 +63,7 @@ def get_annotations_curve(arena, user_annotation):
 # %%
 def get_user_annotations(arena, image_folder, num_keypoints, first_frame=0):
     # List all image files in the specified folder
+    
     image_files = [f for f in os.listdir(image_folder) if f.endswith(('.png', 'bmp'))]
     print(f'Found {len(image_files)} images in the folder: {image_folder}')
     print(f'Starting annotation from image: {image_files[first_frame]}, which is the {first_frame}th image')
@@ -63,56 +73,79 @@ def get_user_annotations(arena, image_folder, num_keypoints, first_frame=0):
     
     for image_id, image_file in enumerate(image_files):
         # Load the image
+        global flag
         image_path = os.path.join(image_folder, image_file)
         img = plt.imread(image_path)
 
         # Create a new figure and axis
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize=(15, 15))
         ax.imshow(img, cmap='gray')
         ax.set_title(f"Click on the image: {image_file} to annotate {num_keypoints} keypoints")
         
         # Get virtual annotations
         # Connect the click event to the onclick function
         cid = fig.canvas.mpl_connect('button_press_event', onclick)
-        
-        # Show the image
-        plt.show(block=True)
+        scat1 = None
+        scat2 = None
+        plt.show()
+        for kpt_id in range(num_keypoints):
+            # Show the image
+            while True:                
+                if flag == 0:
+                    flag = 1
+                    break    
+                plt.pause(0.1)
+            
+                if not coordinates:
+                    continue
+                # After closing the image, save the coordinates
+                virtual_annotations_frame = torch.tensor(coordinates[-1]).to(torch.float64)[:,None]
+                coordinates.clear()
 
-        # After closing the image, save the coordinates
-        virtual_annotations_frame = torch.tensor(coordinates).to(torch.float64).T
-        coordinates.clear()
-        print(virtual_annotations_frame.shape)
+                # Get real annotations
+                annotations_curve = get_annotations_curve(arena, virtual_annotations_frame)
+                ax.imshow(img, cmap='gray')
+                ax.set_title(f"Click on the virtual image: {image_file} to annotate {kpt_id} of {num_keypoints} keypoints")
 
-        # Get real annotations
-        annotations_curve = get_annotations_curve(arena, virtual_annotations_frame)
-        fig, ax = plt.subplots()
-        ax.imshow(img, cmap='gray')
-        ax.set_title(f"Click on the image: {image_file} to annotate {num_keypoints} keypoints")
-        plt.scatter(
-            virtual_annotations_frame[0,:].detach().numpy(),
-            virtual_annotations_frame[1,:].detach().numpy(),
-            s=2,
-            color='g',
-        )
-        plt.scatter(
-            annotations_curve[0,:].detach().numpy(),
-            annotations_curve[1,:].detach().numpy(),
-            s=0.1,
-            color='r',
-            alpha=0.2
-        )
-        plt.legend(['User annotations in virtual view', 'Predicted annotations in real view'])
-        cid = fig.canvas.mpl_connect('button_press_event', onclick)
+                if scat1 is not None:
+                    scat1.remove()
+                    scat2.remove()
+                scat1 = ax.scatter(
+                    virtual_annotations_frame[0,:].detach().numpy(),
+                    virtual_annotations_frame[1,:].detach().numpy(),
+                    s=2,
+                    color='g',
+                )
+                scat2 = ax.scatter(
+                    annotations_curve[0,:].detach().numpy(),
+                    annotations_curve[1,:].detach().numpy(),
+                    s=0.1,
+                    color='r',
+                    alpha=0.2
+                )
 
-        plt.show(block=True)
+                ax.legend(['User annotations in virtual view', 'Predicted annotations in real view'])
+                plt.draw()
 
-        # After closing the image, save the coordinates
-        real_annotations_frame = torch.tensor(coordinates).to(torch.float64).T
-        
-        # Clear the coordinates for the next image
-        coordinates.clear()
-        virtual_annotations[image_id, ...] = virtual_annotations_frame
-        real_annotations[image_id, ...] = real_annotations_frame
+                        
+            plt.close()
+            
+            fig, ax = plt.subplots(figsize=(15, 15))
+            ax.imshow(img, cmap='gray')
+            ax.set_title(f"Click on the real image: {image_file} to annotate {num_keypoints} keypoints")
+            cid = fig.canvas.mpl_connect('button_press_event', onclick)
+
+            plt.show(block=True)
+
+            # After closing the image, save the coordinates
+            real_annotations_frame = torch.tensor(coordinates).to(torch.float64).T
+            
+            # Clear the coordinates for the next image
+            coordinates.clear()
+
+            virtual_annotations[image_id, :, kpt_id] = virtual_annotations_frame[:,0]
+            real_annotations[image_id, :, kpt_id] = real_annotations_frame[:,0]
+            flag = 1
     
     return virtual_annotations, real_annotations
 
