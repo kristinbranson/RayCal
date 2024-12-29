@@ -36,9 +36,10 @@ class CalibrationDataset(Dataset):
 
 #%% Load camera calibration results
 load_checkpoint = False
-calibration_results_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/exp_7/results/'
+calibration_results_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/exp_16/results/'
 calibration_results_file = 'dotted_grid_pairwise_data.mat'
 calibration_results_path = os.path.join(calibration_results_dir, calibration_results_file)
+prism_initialization_path = os.path.join(calibration_results_dir, 'prism_initialization.mat')
 outputs_dir = 'outputs'
 os.makedirs(outputs_dir, exist_ok=True)
 now = datetime.datetime.now()
@@ -125,7 +126,6 @@ def unfreeze_all_parameters(arena):
             param.requires_grad = True
 
 
-
 #%% Prism corners third plane 
 prism_annotated_face = 'first'
 prism_corners_path = '/groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/prism_corners_third_plane.mat'
@@ -173,9 +173,14 @@ prism_angles = torch.tensor([-1.8710,  1.4078, -1.9315], dtype=torch.float64) # 
 prism1_center[2] = 250.
 
 #%% Initialize an Arena instance
-prism_distance = torch.tensor(130.) # Not used if you're using fiduciary markers for initialization
 #prism_angles = torch.tensor([-1.5341, 1.3650, -1.5638], dtype=torch.float64)
 #prism_center = torch.tensor([-6.5058, -5.6897, 149.0993], dtype=torch.float64)
+prism_initializations = sio.loadmat(prism_initialization_path)
+prism_center = torch.tensor(prism_initializations['location_prism']).to(torch.float64).T
+prism_axes = torch.tensor(prism_initializations['axes_prism']).to(torch.float64)
+plane = Plane(axes=prism_axes)
+prism_angles = torch.tensor([plane.alpha, plane.beta, plane.gamma], dtype=torch.float64)
+
 arena = Arena_reprojection_loss_two_cameras_prism_grid_distances(principal_point_pixel_cam_0,
             principal_point_pixel_cam_1, 
             focal_length_cam_1, 
@@ -183,7 +188,7 @@ arena = Arena_reprojection_loss_two_cameras_prism_grid_distances(principal_point
             R,
             T, 
             prism_angles=prism_angles,
-            prism_center=prism1_center)
+            prism_center=prism_center)
 pixels_virtual_two_cams = torch.vstack((virtual_pixels_cam_0, virtual_pixels_cam_1))
 pixels_real_two_cams = torch.vstack((undistorted_real_pixels_cam_0, undistorted_real_pixels_cam_1))
 freeze_camera_parameters(arena.camera1)
@@ -287,7 +292,7 @@ def train_two_cams(model, train_loader, criterion, plot=False):
             closest_dist_loss += closest_distance_loss.item()
             distortion_loss += distortion_loss.item()
             intersection_loss += intersection_loss.item()
-            reprojection_loss += recon_virtual_loss.item()     
+            reprojection_loss += overall_reprojection_loss.item()     
             pairwise_dist_loss += pairwise_distance_loss.item()       
 
     return total_loss / len(train_loader.dataset), reprojection_loss / len(train_loader.dataset), virtual_loss / len(train_loader.dataset), real_loss / len(train_loader.dataset), closest_dist_loss / len(train_loader.dataset), distortion_loss / len(train_loader.dataset), intersection_loss / len(train_loader.dataset), tr_loss / len(train_loader.dataset), pairwise_dist_loss / len(train_loader.dataset)
@@ -352,14 +357,14 @@ def validate(model, val_loader, criterion):
             distortion_loss += distortion_loss.item()
             closest_dist_loss += closest_distance_loss.item()
             tr_loss += triangulation_loss.item()
-            reprojection_loss += recon_virtual_loss.item()
+            reprojection_loss += overall_reprojection_loss.item()
             pairwise_dist_loss += pairwise_distance_loss.item()
 
     return total_loss / len(val_loader.dataset), reprojection_loss / len(val_loader.dataset), virtual_loss / len(val_loader.dataset), real_loss / len(val_loader.dataset), closest_dist_loss / len(val_loader.dataset), distortion_loss / len(val_loader.dataset), intersection_loss / len(val_loader.dataset), tr_loss / len(val_loader.dataset), pairwise_dist_loss / len(val_loader.dataset)
 
 
 #%% Visualize arena initialization
-#arena.visualize(pixels_virtual_two_cams)
+arena.visualize(pixels_virtual_two_cams, color_labels=True)
 #plt.savefig(f'{outputs_dir}/initialized_arena.png')
 
 
@@ -386,7 +391,6 @@ pixels_virtual_two_cams_train, pixels_virtual_two_cams_val = random_split(
 train_loader = DataLoader(pixels_virtual_two_cams_train, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(pixels_virtual_two_cams_val, batch_size=batch_size, shuffle=False)
 
-num_epochs = 300
 optimizer = optim.Adam(arena.parameters(), lr=5e-2
                        )
 criterion = torch.nn.MSELoss()
@@ -416,7 +420,7 @@ gt_val_loss_array = []
 closest_distance_val_loss_array = []
 best_loss = 1e100
 #%%
-num_epochs = 500
+num_epochs = 1000
 
 plot = False
 for epoch in tqdm(range(num_epochs)):
@@ -467,7 +471,7 @@ for epoch in tqdm(range(num_epochs)):
     writer.add_scalar('Loss/val_intersection_error', val_intersection_loss, epoch)
     writer.add_scalar('Loss/val_distortion_error', val_distortion_loss, epoch)
     writer.add_scalar('Parameter/prism/refractive_index_glass', arena.prism.refractive_index_glass, epoch)
-    
+
     writer.add_scalars('Parameter/prism_angles', {
         'Angle0':arena.prism.prism_angles[0],
          'Angle1':arena.prism.prism_angles[1],
@@ -515,9 +519,8 @@ for epoch in tqdm(range(num_epochs)):
         print(f'Found better model with validation loss for epoch {epoch}: val_loss: {val_loss}, reprojection error: {val_reprojection_loss}, closest_dist_loss: {val_closest_dist_loss}, triangulation loss {triangulation_loss}, pairwise_distance_loss: {val_pairwise_distance_loss}, intersection loss: {val_intersection_loss}')
     gt_train_loss_array.append(train_loss)
     gt_val_loss_array.append(val_loss)
-    closest_distance_train_loss_array.append(val_closest_dist_loss)
-
-
+    closest_distance_train_loss_array.append(train_closest_dist_loss)
+    closest_distance_val_loss_array.append(val_closest_dist_loss)
 
 # %% Validate the model
 
