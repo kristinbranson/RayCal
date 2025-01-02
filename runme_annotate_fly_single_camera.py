@@ -9,7 +9,7 @@ import openpyxl
 
 #%%
 # Load  data
-model_checkpoint_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/refraction_model/calprism/outputs/model_checkpoints/2024_12_18_18_1_22'
+model_checkpoint_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/refraction_model/calprism/outputs/model_checkpoints/2024_12_26_12_53_16'
 PATH = f'{model_checkpoint_dir}/best_checkpoint.pth'
 checkpoint = torch.load(PATH, weights_only=True)
 arena = Arena_single_camera_prism_grid_distance(
@@ -24,7 +24,8 @@ arena = Arena_single_camera_prism_grid_distance(
             prism_size=20.,
 )
 arena.load_state_dict(checkpoint['model_state_dict'])
-images_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/exp_13/fly_images/cam_0/image_cam_0_date_2024_12_17_time_21_03_30_v001_selected'
+experiment_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/exp_17/fly_images/cam_0/'
+images_dir = [os.path.join(experiment_dir, filename) for filename in os.listdir(experiment_dir) if filename.startswith("image")][0]
 
 # %% Click event
 coordinates = []
@@ -75,7 +76,7 @@ def append_to_excel(file_name, annotations, keypoints_dict):
         sheet = workbook.active
 
     # Find the next empty row
-    if kpt_id == num_keypoints - 1:
+    if kpt_id == 0:
         next_row = sheet.max_row + 1
     else:
         next_row = sheet.max_row
@@ -103,21 +104,22 @@ def append_to_excel(file_name, annotations, keypoints_dict):
 
 # %%
 def get_annotations_curve(arena, user_annotation):
-    undistorted_annotations = arena.camera1.undistort_pixels_classical(user_annotation[:2],
-    arena.radial_dist_coeffs)
-    cam_1_ray = arena.camera1(undistorted_annotations)
-    _, _, emergent_ray, _ = arena.prism(cam_1_ray)
-    origin = emergent_ray.origin[:,0][:,None]
-    direction = emergent_ray.direction[:,0][:,None]
-    s = torch.linspace(0, 3, 100).to(torch.float64)
-    r = origin + s[None, :] * direction
+    with torch.no_grad():
+        undistorted_annotations = arena.camera1.undistort_pixels_classical(user_annotation[:2],
+        arena.radial_dist_coeffs)
+        cam_1_ray = arena.camera1(undistorted_annotations)
+        _, _, emergent_ray, _ = arena.prism(cam_1_ray)
+        origin = emergent_ray.origin[:,0][:,None]
+        direction = emergent_ray.direction[:,0][:,None]
+        s = torch.linspace(0, 3, 100).to(torch.float64)
+        r = origin + s[None, :] * direction
 
-    R1 = torch.eye(3, 3).to(torch.float64)
-    T1 = torch.zeros(3, 1).to(torch.float64)
-    annotations_curve = arena.camera1.reproject(torch.tensor(r).to(torch.float64), R1, T1)
-    annotations_curve = arena.camera1.distort_pixels_classical(annotations_curve,
-    arena.radial_dist_coeffs)
-    return annotations_curve
+        R1 = torch.eye(3, 3).to(torch.float64)
+        T1 = torch.zeros(3, 1).to(torch.float64)
+        annotations_curve = arena.camera1.reproject(torch.tensor(r).to(torch.float64), R1, T1)
+        annotations_curve = arena.camera1.distort_pixels_classical(annotations_curve,
+        arena.radial_dist_coeffs)
+        return annotations_curve
 
 # %%
 def get_user_annotations(arena, image_folder, keypoints_dict, first_frame=0, excel_file_path=None, step=1):
@@ -137,11 +139,12 @@ def get_user_annotations(arena, image_folder, keypoints_dict, first_frame=0, exc
         global flag
         image_path = os.path.join(image_folder, image_file)
         img = plt.imread(image_path)
-        
+        plt.close('all')
+        fig, ax = plt.subplots(figsize=(22, 20))
         for kpt_id in range(num_keypoints):
             # Show the image
             # Create a new figure and axis            
-            fig, ax = plt.subplots(figsize=(22, 20))
+            
             ax.imshow(img, cmap='gray')            
             
             # Get virtual annotations
@@ -156,18 +159,19 @@ def get_user_annotations(arena, image_folder, keypoints_dict, first_frame=0, exc
                 if flag == 0:
                     flag = 1
                     break    
-                plt.pause(0.01)
+                plt.pause(0.0001)
             
                 if len(coordinates) == len_coor:
                     continue
                 # After closing the image, save the coordinates
                 virtual_annotations_frame = torch.tensor(coordinates[-1]).to(torch.float64)[:,None]
+                
                 coordinates.clear()
 
                 # Get real annotations
                 annotations_curve = get_annotations_curve(arena, virtual_annotations_frame)
-                ax.imshow(img, cmap='gray')
-                
+
+                ax.imshow(img, cmap='gray')                
 
                 if scat1 is not None:
                     scat1.remove()
@@ -200,7 +204,7 @@ def get_user_annotations(arena, image_folder, keypoints_dict, first_frame=0, exc
                 if flag == 0:
                     flag = 1
                     break
-                plt.pause(0.01)
+                plt.pause(0.0001)
                 
                 if len_coor == len(coordinates):
                     continue
@@ -216,6 +220,7 @@ def get_user_annotations(arena, image_folder, keypoints_dict, first_frame=0, exc
                     scat1.remove()
                     scat2.remove()
                 real_annotations_frame = torch.tensor(coordinates[-1]).to(torch.float64)[:,None]
+                
                 coordinates.clear()
                 annotations_curve = get_annotations_curve(arena, real_annotations_frame)
                 ax.imshow(img, cmap='gray')
@@ -240,13 +245,14 @@ def get_user_annotations(arena, image_folder, keypoints_dict, first_frame=0, exc
             virtual_annotations[image_id, :, kpt_id] = virtual_annotations_frame[:,0]
             real_annotations[image_id, :, kpt_id] = real_annotations_frame[:,0]
 
-            plt.close('all')
+            #plt.close('all')
             flag = 1
+            ax.cla()
     
     return virtual_annotations, real_annotations
 
 # %%
-excel_file_name='annotations.xlsx'
-keypoints_dict = ['L1', 'R1', 'L2', 'R2', 'L3', 'R3', 'Head', 'Belly', 'Thorax Tip']
-excel_file_path = os.path.join(images_dir, excel_file_name)
-virtual_annotations, real_annotations = get_user_annotations(arena, images_dir, keypoints_dict, first_frame=364, excel_file_path=excel_file_path, step=3)
+excel_file_name= f'{images_dir}_annotations.xlsx'
+keypoints_dict = ['L1', 'R1', 'L2', 'R2', 'L3', 'R3', 'Head', 'Belly', 'Thorax Tip', 'Head Tip']
+excel_file_path = os.path.join(experiment_dir, excel_file_name)
+virtual_annotations, real_annotations = get_user_annotations(arena, images_dir, keypoints_dict, first_frame=6174, excel_file_path=excel_file_path, step=2)
