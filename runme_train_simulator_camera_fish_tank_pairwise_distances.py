@@ -71,41 +71,6 @@ principal_point_pixel_cam_1 = torch.tensor([K2[0,2] - 1, K2[1,2] - 1], dtype=tor
 focal_length_cam_1 = (K1[0,0] + K1[1,1]) /  2
 focal_length_cam_2 = (K2[0,0] + K2[1,1]) /  2
 
-"""
-pixels_top_cam = torch.hstack((
-    output_cam_0_pairwise[:2,:],
-    output_cam_0_pairwise[2:4,:]))
-
-pixels_side_cam = torch.hstack((
-    output_cam_1_pairwise[:2,:],
-    output_cam_1_pairwise[2:4,:]))
-R_stereo_cam = torch.eye(3, dtype=torch.float64)
-R_stereo_cam = roty(-pi/2) @ R_stereo_cam
-T = torch.tensor([-320., 0., -450.], dtype=torch.float64)[:, None]
-T = R_stereo_cam.T @ T
-camera2 = arena.get_stereo_camera(arena.principal_point_pixel_cam_1,
-        arena.focal_length_cam_1,
-        R_stereo_cam,
-        T,
-        r1=arena.stereocam_r1)
-pixels_side_cam_undistorted = camera2.undistort_pixels_classical(pixels_side_cam, arena.radial_dist_coeffs_cam_1)
-pixels_top_cam_undistorted = arena.camera1.undistort_pixels_classical(pixels_top_cam, arena.radial_dist_coeffs_cam_0)
-test_idx = torch.randperm(pixels_top_cam_undistorted.shape[1])[:50]
-ray_s = camera2(pixels_side_cam_undistorted[:, test_idx])
-ray_s.t *= 500
-ray_t = arena.camera1(pixels_top_cam_undistorted[:,test_idx])
-fig1, ax1 = arena.camera1.visualize()
-ray_t.t *= 500
-fig1, ax1 = ray_t.visualize(fig1, ax1)
-fig, ax = camera2.visualize()
-fig, ax = ray_s.visualize(fig, ax)
-_, closest_distance = closest_point(
-    ray_s, ray_t
-)
-ax.set_aspect('equal', adjustable='datalim') 
-print(closest_distance.mean())
-
-"""
 
 #%% Freeze parameters
 def freeze_camera_parameters(camera):
@@ -119,6 +84,12 @@ def freeze_individual_planes(prism):
         param.requires_grad = False    
     for param in prism.plane3.parameters():
         param.requires_grad = False
+
+def freeze_camera_intrinsics(arena):
+    arena.camera1.focal_length_pixels.requires_grad = False
+    arena.camera1.principal_point_pixel.requires_grad = False
+    arena.principal_point_pixel_cam_1.requires_grad = False
+    arena.focal_length_cam_1.requires_grad = False
 
 def freeze_stereocamera(arena):
     arena.focal_length_cam_1.requires_grad = False
@@ -136,6 +107,7 @@ def freeze_refractive_indices(arena):
 def unfreeze_all_parameters(arena):
     for param in arena.parameters():
         param.requires_grad = True
+
 
 
 #%% Initialize an Arena instance
@@ -183,8 +155,10 @@ arena = Arena_fish_tank_pairwise_distances(principal_point_pixel_cam_0,
 
 #freeze_camera_parameters(arena.camera1)
 #freeze_stereocamera(arena)
-#freeze_tank_orientation(arena)
+freeze_tank_orientation(arena)
 freeze_refractive_indices(arena)
+#freeze_camera_intrinsics(arena)
+freeze_stereocamera(arena)
 
 #%% Training and validation functions
 def train_two_cams(model, train_loader, criterion, plot=False):    
@@ -269,7 +243,7 @@ pixels_two_cams_train, pixels_two_cams_val = random_split(
 train_loader = DataLoader(pixels_two_cams_train, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(pixels_two_cams_val, batch_size=batch_size, shuffle=False)
 
-num_epochs = 1000
+num_epochs = 2000
 optimizer = optim.Adam(arena.parameters(), lr=5e-1
                        )
 criterion = torch.nn.MSELoss()
@@ -288,21 +262,18 @@ best_loss = 1e100
 
 plot = False
 for epoch in tqdm(range(num_epochs)):
-    if epoch == 250:
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = 1e-2
     if epoch == 450:
         for param_group in optimizer.param_groups:
-            param_group['lr'] = 5e-3
-    if epoch == 650:
+            param_group['lr'] = 5e-2
+    if epoch == 750:
         for param_group in optimizer.param_groups:
             param_group['lr'] = 5e-4
             unfreeze_all_parameters(arena)
-    if epoch == 750:
+    if epoch == 1250:
         for param_group in optimizer.param_groups:
-            param_group['lr'] = 1e-4            
+            param_group['lr'] = 1e-4          
     
-    train_loss, train_pairwise_distance_loss, train_intersection_loss, closest_distance_loss, _ = train_two_cams(model=arena, 
+    train_loss, train_pairwise_distance_loss, train_intersection_loss, train_closest_distance_loss, _ = train_two_cams(model=arena, 
                     train_loader=train_loader, 
                     criterion=criterion,
                     plot=plot
@@ -343,7 +314,7 @@ for epoch in tqdm(range(num_epochs)):
         #print(f'Found better model with validation loss for epoch {epoch}: val_loss: {val_loss}')
     writer.add_scalar('Loss/val', val_loss, epoch)
     writer.add_scalar('Loss/val_pairwise_distance_error', val_pairwise_distance_loss, epoch)
-    writer.add_scalar('Loss/val_pairwise_distance_error', val_closest_distance_loss, epoch)
+    writer.add_scalar('Loss/val_closest_distance_error', val_closest_distance_loss, epoch)
     writer.add_scalar('Parameter/tank/refractive_index_glass', arena.refractive_index_water, epoch)
     writer.add_scalar('Parameter/tank/refractive_index_acrylic', arena.refractive_index_acrylic, epoch)
 
@@ -380,7 +351,8 @@ for epoch in tqdm(range(num_epochs)):
             epoch)
     gt_train_loss_array.append(train_loss)
     gt_val_loss_array.append(val_loss)
-
+    closest_distance_train_loss_array.append(train_closest_distance_loss)
+    closest_distance_val_loss_array.append(val_closest_distance_loss)
 
 # %% Validate the model
 
@@ -389,7 +361,8 @@ checkpoint = torch.load(PATH, weights_only=True)
 arena.load_state_dict(checkpoint['model_state_dict'])
 # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
-recon_3D_test, closest_distance_loss_test, pairwise_distance_recon_test, _ = arena(pixels_two_cams_test)
+recon_3D_test, closest_distance_loss_test, pairwise_distance_recon_test, _, _ = arena(pixels_two_cams_test)
+
 print(f'Closest distance loss: {closest_distance_loss_test.mean()}')
 pairwise_distance_loss = torch.abs(pairwise_distances_test - pairwise_distance_recon_test).mean()
 print(f'Pairwise distance loss {pairwise_distance_loss}')
@@ -411,9 +384,9 @@ ax.set_aspect('equal')
 #%% Make plots after training
 plt.figure(figsize=(15,15))
 epochs = np.arange(0,num_epochs)
-plt.plot(epochs,gt_train_loss_array, color='b', 
+plt.plot(epochs, gt_train_loss_array, color='b', 
          label='Ground truth train loss')
-plt.plot(epochs,closest_distance_train_loss_array, 
+plt.plot(epochs, closest_distance_train_loss_array, 
          color='r', 
          label='Closest distance train loss')
 plt.plot(epochs, gt_val_loss_array, color='b', 
@@ -430,6 +403,6 @@ plt.savefig(f'{model_checkpoint_dir}/training_loss.png')
 
 
 #%% Visualize trained arena
-arena.visualize(pixels_two_cams_test, color_labels=True)
+arena.visualize(pixels_two_cams_test, color_labels=True, rand_sample=False)
 plt.savefig(f'{model_checkpoint_dir}/final_arena.png')
 # %%

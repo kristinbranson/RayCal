@@ -34,10 +34,10 @@ class CalibrationDataset(Dataset):
     def __getitem__(self, idx):
         return self.labels_virtual_2D[idx], self.labels_real_2D[idx], self.labels_3D[idx], self.pairwise_distance[idx]
 
-
+# (1018.5318772136955, 509.0631641086186)
 #%% Load camera calibration results
 load_checkpoint = False
-calibration_results_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/exp_12/results/'
+calibration_results_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/exp_17/results/'
 calibration_results_file = 'dotted_grid_pairwise_data.mat'
 calibration_results_path = os.path.join(calibration_results_dir, calibration_results_file)
 prism_initialization_path = os.path.join(calibration_results_dir, 'prism_initialization.mat')
@@ -197,6 +197,7 @@ prism1_center[1] = -6
 
 prism_initializations = sio.loadmat(prism_initialization_path)
 prism_center = torch.tensor(prism_initializations['location_prism']).to(torch.float64).T
+prism_center[1] = 4.
 prism_axes = torch.tensor(prism_initializations['axes_prism']).to(torch.float64)
 plane = Plane(axes=prism_axes)
 prism_angles = torch.tensor([plane.alpha, plane.beta, plane.gamma], dtype=torch.float64)
@@ -338,7 +339,7 @@ train_dataset, val_dataset = random_split(
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
-num_epochs = 1000
+num_epochs = 3000
 lr = 1e-2
 optimizer = optim.Adam(arena.parameters(), lr=lr
                        )
@@ -573,6 +574,8 @@ ax.set_xlabel('Reprojection error (pixels)', fontsize=28)
 
 #%% Visualize trained arena
 fig, ax = arena.visualize(real_pixels_cam_0_test, virtual_pixels_cam_0_test, color_labels=True)
+
+#%%
 plt.savefig(f'{model_checkpoint_dir}/final_arena.png')
 
 

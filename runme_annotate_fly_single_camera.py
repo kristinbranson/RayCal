@@ -15,11 +15,11 @@ checkpoint = torch.load(PATH, weights_only=True)
 arena = Arena_single_camera_prism_grid_distance(
             principal_point_pixel_cam_0=torch.tensor([0.,0.]).to(torch.float64),
             principal_point_pixel_cam_1=torch.tensor([0.,0.]).to(torch.float64), 
-            focal_length_cam_0=torch.tensor(0.).to(torch.float64), 
+            focal_length_cam_0=torch.tensor(0.).to(torch.float64),
             focal_length_cam_1=torch.tensor(0.).to(torch.float64),
             R_stereo_cam=None,
             T_stereo_cam=None, 
-            prism_angles=torch.tensor([0.,0.,0.]).to(torch.float64),
+            prism_angles=torch.tensor([0.,0.,0.]).to(torch.float64),    
             prism_center=torch.tensor([0.,0.,0.]).to(torch.float64).unsqueeze(-1),
             prism_size=20.,
 )
@@ -101,9 +101,8 @@ def append_to_excel(file_name, annotations, keypoints_dict):
     workbook.save(file_name)
     print(f"Data appended to {file_name} successfully.")
 
-
 # %%
-def get_annotations_curve(arena, user_annotation):
+def get_epipolar_line(arena, user_annotation):
     with torch.no_grad():
         undistorted_annotations = arena.camera1.undistort_pixels_classical(user_annotation[:2],
         arena.radial_dist_coeffs)
@@ -111,15 +110,15 @@ def get_annotations_curve(arena, user_annotation):
         _, _, emergent_ray, _ = arena.prism(cam_1_ray)
         origin = emergent_ray.origin[:,0][:,None]
         direction = emergent_ray.direction[:,0][:,None]
-        s = torch.linspace(0, 3, 100).to(torch.float64)
+        s = torch.linspace(1, 5, 50).to(torch.float64)
         r = origin + s[None, :] * direction
 
         R1 = torch.eye(3, 3).to(torch.float64)
         T1 = torch.zeros(3, 1).to(torch.float64)
-        annotations_curve = arena.camera1.reproject(torch.tensor(r).to(torch.float64), R1, T1)
-        annotations_curve = arena.camera1.distort_pixels_classical(annotations_curve,
-        arena.radial_dist_coeffs)
-        return annotations_curve
+        epipolar_line = arena.camera1.reproject(torch.tensor(r).to(torch.float64), R1, T1)
+        epipolar_line = arena.camera1.distort_pixels_classical(epipolar_line,
+                                                                arena.radial_dist_coeffs)
+        return epipolar_line
 
 # %%
 def get_user_annotations(arena, image_folder, keypoints_dict, first_frame=0, excel_file_path=None, step=1):
@@ -165,11 +164,9 @@ def get_user_annotations(arena, image_folder, keypoints_dict, first_frame=0, exc
                     continue
                 # After closing the image, save the coordinates
                 virtual_annotations_frame = torch.tensor(coordinates[-1]).to(torch.float64)[:,None]
-                
                 coordinates.clear()
-
                 # Get real annotations
-                annotations_curve = get_annotations_curve(arena, virtual_annotations_frame)
+                epipolar_line = get_epipolar_line(arena, virtual_annotations_frame)
 
                 ax.imshow(img, cmap='gray')                
 
@@ -179,15 +176,15 @@ def get_user_annotations(arena, image_folder, keypoints_dict, first_frame=0, exc
                 scat1 = ax.scatter(
                     virtual_annotations_frame[0,:].detach().numpy(),
                     virtual_annotations_frame[1,:].detach().numpy(),
-                    s=2,
+                    s=3,
                     color='g',
                 )
                 scat2 = ax.scatter(
-                    annotations_curve[0,:].detach().numpy(),
-                    annotations_curve[1,:].detach().numpy(),
+                    epipolar_line[0,:].detach().numpy(),
+                    epipolar_line[1,:].detach().numpy(),
                     s=0.1,
                     color='r',
-                    alpha=0.2
+                    alpha=0.6
                 )
                 len_coor = len(coordinates)
                 #ax.legend(['User annotations in virtual view', 'Predicted annotations in real view'])
@@ -195,7 +192,7 @@ def get_user_annotations(arena, image_folder, keypoints_dict, first_frame=0, exc
                     
             
             # Get plausible real annotations again just to be sure
-            annotations_curve = get_annotations_curve(arena, virtual_annotations_frame)
+            epipolar_line = get_epipolar_line(arena, virtual_annotations_frame)
             ax.imshow(img, cmap='gray')
             ax.set_title(f"Click on the real image: {image_file} to annotate {keypoints_dict[kpt_id]}, {kpt_id+1} of {num_keypoints} keypoints")
             cid = fig.canvas.mpl_connect('button_press_event', onclick)
@@ -210,8 +207,8 @@ def get_user_annotations(arena, image_folder, keypoints_dict, first_frame=0, exc
                     continue
 
                 scat1 = ax.scatter(
-                        annotations_curve[0,:].detach().numpy(),
-                        annotations_curve[1,:].detach().numpy(),
+                        epipolar_line[0,:].detach().numpy(),
+                        epipolar_line[1,:].detach().numpy(),
                         s=0.1,
                         color='r',
                         alpha=0.2
@@ -222,7 +219,7 @@ def get_user_annotations(arena, image_folder, keypoints_dict, first_frame=0, exc
                 real_annotations_frame = torch.tensor(coordinates[-1]).to(torch.float64)[:,None]
                 
                 coordinates.clear()
-                annotations_curve = get_annotations_curve(arena, real_annotations_frame)
+                epipolar_line = get_epipolar_line(arena, real_annotations_frame)
                 ax.imshow(img, cmap='gray')
                 
                 scat2 =  ax.scatter(
@@ -252,7 +249,9 @@ def get_user_annotations(arena, image_folder, keypoints_dict, first_frame=0, exc
     return virtual_annotations, real_annotations
 
 # %%
-excel_file_name= f'{images_dir}_annotations.xlsx'
-keypoints_dict = ['L1', 'R1', 'L2', 'R2', 'L3', 'R3', 'Head', 'Belly', 'Thorax Tip', 'Head Tip']
+excel_file_name= f'{images_dir}_annotations_copy.xlsx'
+#keypoints_dict = ['L1', 'R1', 'L2', 'R2', 'L3', 'R3', 'Head', 'Belly', 'Thorax Tip', 'Head Tip']
+keypoints_dict = ['L1', 'R1', 'L2', 'R2', 'L3', 'R3']
 excel_file_path = os.path.join(experiment_dir, excel_file_name)
-virtual_annotations, real_annotations = get_user_annotations(arena, images_dir, keypoints_dict, first_frame=6174, excel_file_path=excel_file_path, step=2)
+virtual_annotations, real_annotations = get_user_annotations(arena, images_dir, keypoints_dict, first_frame=23244,
+excel_file_path=excel_file_path, step=2)
