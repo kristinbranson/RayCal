@@ -1,3 +1,5 @@
+#%%
+# Load  data
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -11,7 +13,7 @@ from skimage import exposure
 
 #%%
 # Load  data
-model_checkpoint_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/refraction_model/calprism/outputs/model_checkpoints/exp_16_2025_1_11_13_11_12'
+model_checkpoint_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/refraction_model/calprism/outputs/model_checkpoints/exp_20_2025_2_11_17_51_27'
 PATH = f'{model_checkpoint_dir}/best_checkpoint.pth'
 checkpoint = torch.load(PATH, weights_only=True)
 arena = Arena_reprojection_loss_two_cameras_prism_grid_distances(
@@ -26,7 +28,7 @@ arena = Arena_reprojection_loss_two_cameras_prism_grid_distances(
             )
 
 arena.load_state_dict(checkpoint['model_state_dict'])
-experiment_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/exp_16/fly_images/'
+experiment_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/exp_20/fly_images/'
 images_dir = experiment_dir # NOTE: This is being done slightly differently compared with the single camera case
 
 # %% Click event
@@ -37,13 +39,13 @@ def onclick(event):
     global flag
     # Check if the click is within the image boundaries
     if event.button == 3:
-        print('Right click. Exiting the annotation')
+        #print('Right click. Exiting the annotation')
         flag = 0
         
     if event.xdata is not None and event.ydata is not None and event.button == 1:
         # Store the (x, y) coordinates
         coordinates.append((event.xdata, event.ydata))
-        print(f"Clicked at: ({event.xdata}, {event.ydata})")
+        #print(f"Clicked at: ({event.xdata}, {event.ydata})")
 
 # %% 
 def convert_annotations_to_excel(real_annotation, virtual_annotation, im_id, kpt_id):
@@ -142,12 +144,14 @@ def get_epipolar_line(arena, user_annotation,
         with torch.no_grad():
             undistorted_annotations = labelled_camera.undistort_pixels_classical(user_annotation[:2],
                                                                                 cam_labelled_dist_coeff)
+            
             cam_1_ray = labelled_camera(undistorted_annotations)
             _, _, emergent_ray, _ = arena.prism(cam_1_ray)
             origin = emergent_ray.origin[:,0][:,None]
             direction = emergent_ray.direction[:,0][:,None]
             s = torch.linspace(0, 8, 50).to(torch.float64)
-            r = origin + s[None, :] * direction        
+            r = origin + s[None, :] * direction       
+
             
             annotations_curve_unlabelled_camera = unlabelled_camera.reproject(torch.tensor(r).to(torch.float64), R_unlabelled, T_unlabelled)
             annotations_curve_labelled_camera = labelled_camera.reproject(torch.tensor(r).to(torch.float64), R_labelled, T_labelled)
@@ -213,6 +217,8 @@ def get_user_annotations(arena, image_folder, keypoints_dict, first_frame=0, exc
         im_primary_width = img_primary.shape[1]
         plt.close('all')
         fig, ax = plt.subplots(figsize=(90, 30))
+        real_annotation_frame = torch.zeros(4).to(torch.float64)
+        virtual_annotation_frame = torch.zeros_like(real_annotation_frame).squeeze()
         for kpt_id in range(num_keypoints):
             # Show the image
             # Create a new figure and axis 
@@ -228,6 +234,7 @@ def get_user_annotations(arena, image_folder, keypoints_dict, first_frame=0, exc
             scat1 = None
             scat2 = None
             ax.set_title(f"Click on the virtual image: {image_file_primary} in primary camera to annotate {keypoints_dict[kpt_id]}, {kpt_id+1} of {num_keypoints} keypoints")
+            #print(f"Click on the virtual image: {image_file_primary} in primary camera to annotate {keypoints_dict[kpt_id]}, {kpt_id+1} of {num_keypoints} keypoints")
             plt.show()
             len_coor = 0
             #NOTE: While loop for annotation of the primary camera
@@ -287,11 +294,12 @@ def get_user_annotations(arena, image_folder, keypoints_dict, first_frame=0, exc
                                                 cam_label=cam_label)  # cam_label is the label of the camera annotated by the user
                 epipolar_line_unlabelled[0,:] += im_primary_width
 
-
+            print(f'Clicked {coordinates}')
             cam_label = "primary_real"
             ax.imshow(img, cmap='gray')
             plt.subplots_adjust(top = 1, bottom = 0, right = 1, left = 0, hspace = 0, wspace = 0)                             
             ax.set_title(f"Click on the real image: {image_file} in primary camera to annotate {keypoints_dict[kpt_id]}, {kpt_id+1} of {num_keypoints} keypoints")
+            #print((f"Click on the real image: {image_file} in primary camera to annotate {keypoints_dict[kpt_id]}, {kpt_id+1} of {num_keypoints} keypoints"))
             cid = fig.canvas.mpl_connect('button_press_event', onclick)
             while True:                
                 if flag == 0:
@@ -343,7 +351,6 @@ def get_user_annotations(arena, image_folder, keypoints_dict, first_frame=0, exc
                 len_coor = len(coordinates)                
                 plt.draw()
             
-                print(f'{epipolar_line_labelled}')
                 # Compute the epipolar lines
                 epipolar_line_unlabelled = get_epipolar_line(arena, 
                                                 primary_real_annotations_frame,
@@ -355,6 +362,7 @@ def get_user_annotations(arena, image_folder, keypoints_dict, first_frame=0, exc
             ax.imshow(img, cmap='gray')
             plt.subplots_adjust(top = 1, bottom = 0, right = 1, left = 0, hspace = 0, wspace = 0)                             
             ax.set_title(f"Click on the virtual image: {image_file} in secondary camera to annotate {keypoints_dict[kpt_id]}, {kpt_id+1} of {num_keypoints} keypoints")
+            #print(f"Click on the virtual image: {image_file} in secondary camera to annotate {keypoints_dict[kpt_id]}, {kpt_id+1} of {num_keypoints} keypoints")
             cid = fig.canvas.mpl_connect('button_press_event', onclick)            
             #NOTE: While loop for annotation of the secondary camera
             while True:
@@ -365,9 +373,7 @@ def get_user_annotations(arena, image_folder, keypoints_dict, first_frame=0, exc
                 
                 if len_coor == len(coordinates):
                     continue
-                
-                
-                
+
                 secondary_virtual_annotations_frame = torch.tensor(coordinates[-1]).to(torch.float64)[:,None]
                 secondary_virtual_annotations_frame[0,:] -= im_primary_width # Accounting for the stacking of primary and secondary image
                 coordinates.clear()
@@ -376,7 +382,6 @@ def get_user_annotations(arena, image_folder, keypoints_dict, first_frame=0, exc
                 epipolar_line_unlabelled, epipolar_line_labelled = get_epipolar_line(arena, 
                                                   secondary_virtual_annotations_frame,
                                                   cam_label=cam_label)  # cam_label is the label of the camera annotated by the user
-                print(epipolar_line_labelled)
                 
 
                 if scat1 is not None:
@@ -411,12 +416,11 @@ def get_user_annotations(arena, image_folder, keypoints_dict, first_frame=0, exc
                 len_coor = len(coordinates)
                 plt.draw()
 
-
-
             cam_label = "secondary_real"
             ax.imshow(img, cmap='gray')
             plt.subplots_adjust(top = 1, bottom = 0, right = 1, left = 0, hspace = 0, wspace = 0)                             
             ax.set_title(f"Click on the real image: {image_file} in secondary camera to annotate {keypoints_dict[kpt_id]}, {kpt_id+1} of {num_keypoints} keypoints")
+            #print(f"Click on the real image: {image_file} in secondary camera to annotate {keypoints_dict[kpt_id]}, {kpt_id+1} of {num_keypoints} keypoints")
             cid = fig.canvas.mpl_connect('button_press_event', onclick)
             while True:                
                 if flag == 0:
@@ -446,7 +450,7 @@ def get_user_annotations(arena, image_folder, keypoints_dict, first_frame=0, exc
                     scat2.remove()
                     scat3.remove()
                 scat1 = ax.scatter(
-                    secondary_real_annotations_frame[0,:].detach().numpy(),
+                    secondary_real_annotations_frame[0,:].detach().numpy() + im_primary_width, 
                     secondary_real_annotations_frame[1,:].detach().numpy(),
                     s=3,
                     color='g',
@@ -471,7 +475,8 @@ def get_user_annotations(arena, image_folder, keypoints_dict, first_frame=0, exc
             
             
                 # Compute the epipolar lines
-                epipolar_line_unlabelled = get_epipolar_line(arena, 
+                epipolar_line_unlabelled = get_epipolar_line(
+                                            arena, 
                                                 primary_virtual_annotations_frame,
                                                 cam_label="secondary_real")  # cam_label is the label of the camera annotated by the user
 
@@ -481,14 +486,16 @@ def get_user_annotations(arena, image_folder, keypoints_dict, first_frame=0, exc
 
             #NOTE: Annotation for the current frame ends here
             image_path = image_path_primary.replace('/cam_0', '')
-            real_annotation_frame = torch.zeros(4, num_keypoints).to(torch.float64)
-            real_annotation_frame[:2, kpt_id] = primary_real_annotations_frame.squeeze()
-            real_annotation_frame[2:, kpt_id] = secondary_real_annotations_frame.squeeze()
-            virtual_annotation_frame = torch.zeros_like(real_annotation_frame).squeeze()
-            virtual_annotation_frame[:2, kpt_id] = primary_virtual_annotations_frame.squeeze()
-            virtual_annotation_frame[2:, kpt_id] = secondary_virtual_annotations_frame.squeeze()
-
+            real_annotation_frame[:2] = primary_real_annotations_frame.squeeze()
+            real_annotation_frame[2:] = secondary_real_annotations_frame.squeeze()
+            
+            virtual_annotation_frame[:2] = primary_virtual_annotations_frame.squeeze()
+            virtual_annotation_frame[2:] = secondary_virtual_annotations_frame.squeeze()
+            print(f'virtual annotation frame {virtual_annotation_frame}')
+            print(f'primary virtual annotations {primary_virtual_annotations_frame}')
+        
             annotations = convert_annotations_to_excel(real_annotation_frame, virtual_annotation_frame, im_id=image_path, kpt_id=kpt_id)
+       
             if excel_file_path is not None:
                 append_to_excel(excel_file_path, annotations, keypoints_dict)
             else:
@@ -525,6 +532,7 @@ def get_secondary_camera(arena):
 # %%
 excel_file_name= f'{images_dir}/annotations.xlsx'
 keypoints_dict = ['L1', 'R1', 'L2', 'R2', 'L3', 'R3', 'Head', 'Belly', 'Thorax Tip', 'Head Tip', 'l1', 'r1', 'l2', 'r2', 'l3', 'r3']
+keypoints_dict = ['L1', 'R1', 'Neck']
 excel_file_path = os.path.join(experiment_dir, excel_file_name)
-virtual_annotations, real_annotations = get_user_annotations(arena, images_dir, keypoints_dict, first_frame=40300,
+virtual_annotations, real_annotations = get_user_annotations(arena, images_dir, keypoints_dict, first_frame=1,
 excel_file_path=excel_file_path, step=2)
