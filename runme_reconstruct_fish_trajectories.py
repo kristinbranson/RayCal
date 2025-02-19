@@ -160,7 +160,7 @@ def update(frame_id):
     ax1.tick_params(axis='z', pad=8)  # Increase padding for z-axis tick labels
     ax1.set_aspect('equal')
     ax1.set_xlabel('X (mm)', fontsize=22, labelpad=27)
-    ax1.set_ylabel('Y (mm)', fontsize=22, labelpad=30)
+    ax1.set_ylabel('Y (mm)', fontsize=22, labelpad=40)
     ax1.set_zlabel('Z (mm)', fontsize=22, labelpad=17)
     ax1.set_title(f'3-D reconstruction', fontsize=28, pad=1)
     ax1.view_init(elev=-15., azim=210., roll=180.)    

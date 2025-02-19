@@ -36,7 +36,7 @@ class CalibrationDataset(Dataset):
 
 #%% Load camera calibration results
 load_checkpoint = False
-exp_id = 16
+exp_id = 20
 calibration_results_dir = f'/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/exp_{exp_id}/results/'
 calibration_results_file = 'dotted_grid_pairwise_data.mat'
 calibration_results_path = os.path.join(calibration_results_dir, calibration_results_file)
@@ -526,6 +526,7 @@ for epoch in tqdm(range(0, num_epochs)):
                     'intersection_loss': val_intersection_loss,
                     'train_pairwise_distance_loss': train_pairwise_distance_loss,
                 }, f'{model_checkpoint_dir}/checkpoint_{epoch}.pth')
+                
     if val_loss < best_loss:
         best_loss = val_loss
         torch.save({
@@ -533,7 +534,12 @@ for epoch in tqdm(range(0, num_epochs)):
                     'model_state_dict': arena.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict(),
                     'loss': val_loss,
-                }, f'{model_checkpoint_dir}/best_checkpoint.pth')
+                }, f'{model_checkpoint_dir}/best_checkpoint.pth'),
+        torch.save(
+            arena.state_dict(),
+            f'{model_checkpoint_dir}/best_model_weights_only.pth',
+            _use_new_zipfile_serialization=False,
+        )
         print(f'Found better model with validation loss for epoch {epoch}: val_loss: {val_loss}, reprojection error: {val_reprojection_loss}, closest_dist_loss: {val_closest_dist_loss}, triangulation loss {triangulation_loss}, pairwise_distance_loss: {val_pairwise_distance_loss}, intersection loss: {val_intersection_loss}')
     gt_train_loss_array.append(train_loss)
     gt_val_loss_array.append(val_loss)
