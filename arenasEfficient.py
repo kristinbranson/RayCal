@@ -562,7 +562,7 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
         distortion_penalty_cam_1 = camera2.calculate_distortion_penalty(recon_pixels_2,
                                                                         self.radial_dist_coeffs_cam_1)
         
-        return recon_3D, closest_distance, recon_pixels_1, recon_pixels_2, recon_3D_real, recon_3D_virtual, distortion_penalty_cam_0, distortion_penalty_cam_1, intersection_penalty_1, intersection_penalty_2, pairwise_distance
+        return recon_3D, closest_distance, closest_distance_virtual, recon_pixels_1, recon_pixels_2, recon_3D_real, recon_3D_virtual, distortion_penalty_cam_0, distortion_penalty_cam_1, intersection_penalty_1, intersection_penalty_2, pairwise_distance
 
 
     def visualize(self, pixels_virtual_two_cams, color_labels=None):
