@@ -124,8 +124,17 @@ class Arena_3D_loss(nn.Module):
         prism_ray11, prism_ray12, emergent_ray_1, intersection_penalty_1 = self.prism(cam_1_ray)
         prism_ray21, prism_ray22, emergent_ray_2, intersection_penalty_2 = self.prism(cam_2_ray)
         recon_3D, closest_distance = closest_point(emergent_ray_1, emergent_ray_2)
-        return recon_3D, closest_distance, prism_ray11, prism_ray12, prism_ray21, prism_ray22, intersection_penalty_1, intersection_penalty_2
-
+        output = {}
+        output['recon_3D'] = recon_3D
+        output['closest_distance'] = closest_distance
+        output['prism_ray11'] = prism_ray11
+        output['prism_ray12'] = prism_ray12
+        output['prism_ray21'] = prism_ray21
+        output['prism_ray22'] = prism_ray22
+        output['intersection_penalty_1'] = intersection_penalty_1
+        output['intersection_penalty_2'] = intersection_penalty_2
+        return output
+    
 
     def visualize(self, pixels_virtual_two_cams, color_labels=None):
         num_samples = 10
@@ -287,7 +296,7 @@ class Arena_reprojection_loss_two_cameras_prism(nn.Module):
         undistorted_real_pixels_cam_1 = camera2.undistort_pixels(distorted_real_pixels_cam_1)
         cam_1_ray_real = self.camera1(undistorted_real_pixels_cam_0)
         cam_2_ray_real = camera2(undistorted_real_pixels_cam_1)
-        recon_3D_real, _ = closest_point(cam_1_ray_real, cam_2_ray_real)
+        recon_3D_real, closest_distance_real = closest_point(cam_1_ray_real, cam_2_ray_real)
         recon_undistorted_real_pixels_cam_0 = self.camera1.reproject(recon_3D_real, R1, T1)
         recon_undistorted_real_pixels_cam_1 = camera2.reproject(recon_3D_real, R2, T2)
         recon_distorted_real_pixels_cam_0 = self.camera1.distort_pixels(recon_undistorted_real_pixels_cam_0)
@@ -296,10 +305,11 @@ class Arena_reprojection_loss_two_cameras_prism(nn.Module):
         cam_2_ray_virtual = camera2(undistorted_virtual_pixels_cam_1)
         _, _, cam_1_ray_virtual, intersection_penalty_1 = self.prism(cam_1_ray_virtual)
         _, _, cam_2_ray_virtual, intersection_penalty_2 = self.prism(cam_2_ray_virtual)
-        recon_3D_virtual, closest_distance = closest_point(cam_1_ray_virtual, cam_2_ray_virtual)
-        recon_3D_1, _ = closest_point(cam_1_ray_virtual, cam_2_ray_real)
-        recon_3D_2, _ = closest_point(cam_1_ray_virtual, cam_2_ray_real)
-        recon_3D = (recon_3D_real + recon_3D_1 + recon_3D_2) / 3
+        recon_3D_virtual, closest_distance_virtual = closest_point(cam_1_ray_virtual, cam_2_ray_virtual)
+        recon_3D_1, closest_distance_12 = closest_point(cam_1_ray_virtual, cam_2_ray_real)
+        recon_3D_2, closest_distance_21 = closest_point(cam_1_ray_virtual, cam_2_ray_real)
+        recon_3D = (recon_3D_real + recon_3D_1 + recon_3D_2 + recon_3D_virtual) / 4
+        closest_distance_mean = (closest_distance_12 + closest_distance_21 + closest_distance_real + closest_distance_virtual) / 4
         recon_pixels_1 = self.camera1.reproject(recon_3D, R1, T1)
         recon_pixels_1 = self.camera1.distort_pixels(recon_pixels_1)
         recon_pixels_2 = camera2.reproject(recon_3D, R2, T2)
@@ -311,8 +321,25 @@ class Arena_reprojection_loss_two_cameras_prism(nn.Module):
         recon_distorted_virtual_pixels_cam_0 = self.camera1.distort_pixels_MLP(recon_undistorted_virtual_pixels_cam_0)
         recon_distorted_virtual_pixels_cam_1 = camera2.distort_pixels_MLP(recon_undistorted_virtual_pixels_cam_1)        
         distortion_penalty_cam_0 = self.camera1.calculate_distortion_penalty(distorted_virtual_pixels_cam_0) + self.camera1.calculate_distortion_penalty(distorted_real_pixels_cam_0)
-        distortion_penalty_cam_1 = camera2.calculate_distortion_penalty(distorted_virtual_pixels_cam_1) + camera2.calculate_distortion_penalty(distorted_real_pixels_cam_1)        
-        return recon_3D, closest_distance, recon_pixels_1, recon_pixels_2, recon_distorted_virtual_pixels_cam_0, recon_distorted_virtual_pixels_cam_1, recon_distorted_real_pixels_cam_0, recon_distorted_real_pixels_cam_1, intersection_penalty_1, distortion_penalty_cam_0, distortion_penalty_cam_1, intersection_penalty_2
+        distortion_penalty_cam_1 = camera2.calculate_distortion_penalty(distorted_virtual_pixels_cam_1) + camera2.calculate_distortion_penalty(distorted_real_pixels_cam_1)    
+        output = {}
+        output['recon_3D'] = recon_3D
+        output['closest_distance_mean'] = closest_distance_mean
+        output['closest_distance_virtual'] = closest_distance_virtual
+        output['closest_distance_real'] = closest_distance_real
+        output['closest_distance_12'] = closest_distance_12
+        output['closest_distance_21'] = closest_distance_21
+        output['recon_pixels_1'] = recon_pixels_1
+        output['recon_pixels_2'] = recon_pixels_2
+        output['recon_distorted_virtual_pixels_cam_0'] = recon_distorted_virtual_pixels_cam_0
+        output['recon_distorted_virtual_pixels_cam_1'] = recon_distorted_virtual_pixels_cam_1
+        output['recon_distorted_real_pixels_cam_0'] = recon_distorted_real_pixels_cam_0
+        output['recon_distorted_real_pixels_cam_1'] = recon_distorted_real_pixels_cam_1
+        output['intersection_penalty_1'] = intersection_penalty_1
+        output['intersection_penalty_2'] = intersection_penalty_2
+        output['distortion_penalty_cam_0'] = distortion_penalty_cam_0
+        output['distortion_penalty_cam_1'] = distortion_penalty_cam_1
+        return output
 
 
     def visualize(self, pixels_virtual_two_cams, color_labels=None):
@@ -353,6 +380,7 @@ class Arena_reprojection_loss_two_cameras_prism(nn.Module):
         emergent_ray2.t *= 25
         emergent_ray2.visualize(fig, ax, color_labels)
         ax.set_aspect('equal', adjustable='datalim')   
+
 
 class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
     def __init__(self, 
@@ -502,23 +530,10 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
         undistorted_virtual_pixels_cam_1 = camera2.undistort_pixels_classical(distorted_virtual_pixels_cam_1,
                                                                             self.radial_dist_coeffs_cam_1)
 
-        #undistorted_virtual_pixels_cam_0 = self.camera1.undistort_pixels(distorted_virtual_pixels_cam_0)
-        #undistorted_virtual_pixels_cam_1 = camera2.undistort_pixels(distorted_virtual_pixels_cam_1)
-        #undistorted_real_pixels_cam_0 = self.camera1.undistort_pixels(distorted_real_pixels_cam_0)
-        #undistorted_real_pixels_cam_1 = camera2.undistort_pixels(distorted_real_pixels_cam_1)
         cam_1_ray_real = self.camera1(undistorted_real_pixels_cam_0)
         cam_2_ray_real = camera2(undistorted_real_pixels_cam_1)
         recon_3D_real, closest_distance_real = closest_point(cam_1_ray_real, cam_2_ray_real)
-        #recon_undistorted_real_pixels_cam_0 = self.camera1.reproject(recon_3D_real, R1, T1)
-        #recon_undistorted_real_pixels_cam_1 = camera2.reproject(recon_3D_real, R2, T2)
-        #recon_distorted_real_pixels_cam_0 = self.camera1.distort_pixels(recon_undistorted_real_pixels_cam_0)
-        #recon_distorted_real_pixels_cam_1 = camera2.distort_pixels(recon_undistorted_real_pixels_cam_1)
-        """
-        recon_distorted_real_pixels_cam_0 = self.camera1.distort_pixels_classical(recon_undistorted_real_pixels_cam_0, 
-                                                                                self.radial_dist_coeffs_cam_0)
-        recon_distorted_real_pixels_cam_1 = camera2.distort_pixels_classical(recon_undistorted_real_pixels_cam_1,
-                                                                            self.radial_dist_coeffs_cam_1)
-        """
+        
         cam_1_ray_virtual = self.camera1(undistorted_virtual_pixels_cam_0)
         cam_2_ray_virtual = camera2(undistorted_virtual_pixels_cam_1)
         _, _, cam_1_ray_virtual, intersection_penalty_1 = self.prism(cam_1_ray_virtual)
@@ -529,7 +544,6 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
         recon_3D_12, closest_distance_12 = closest_point(cam_1_ray_virtual, cam_2_ray_real)
         recon_3D_21, closest_distance_21 = closest_point(cam_2_ray_virtual, cam_1_ray_real)
         recon_3D = (recon_3D_real + recon_3D_1 + recon_3D_2 + recon_3D_12 + recon_3D_21 + recon_3D_virtual) / 6
-        #recon_3D = (recon_3D_real + recon_3D_1 + recon_3D_2) / 3
         num_points = recon_3D.shape[1] // 2
         closest_distance = (closest_distance_real + closest_distance_virtual + closest_distance_1 + closest_distance_2 + closest_distance_12 + closest_distance_21) / 6
         closest_distance = closest_distance[:num_points]
@@ -542,27 +556,34 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
         recon_pixels_1 = self.camera1.distort_pixels_classical(recon_pixels_1_undistorted, self.radial_dist_coeffs_cam_0)
         recon_pixels_2_undistorted = camera2.reproject(recon_3D, R2, T2)
         recon_pixels_2 = camera2.distort_pixels_classical(recon_pixels_2_undistorted, self.radial_dist_coeffs_cam_1)
-        """
-        recon_undistorted_virtual_pixels_cam_0 = self.camera1.reproject(recon_3D_virtual, R1, T1)
-        recon_undistorted_virtual_pixels_cam_1 = camera2.reproject(recon_3D_virtual, R2, T2)
-
-        # Distortion loss (constraining the distortion and undistortion function to be the inverse of each other)        
-        
-        recon_distorted_virtual_pixels_cam_0 = self.camera1.distort_pixels_classical(recon_undistorted_virtual_pixels_cam_0,
-                                                                                self.radial_dist_coeffs_cam_0)
-        recon_distorted_virtual_pixels_cam_1 = camera2.distort_pixels_classical(recon_undistorted_virtual_pixels_cam_1,
-                                                                                self.radial_dist_coeffs_cam_1)
-        
-        distortion_penalty_cam_0 = self.camera1.calculate_distortion_penalty(distorted_virtual_pixels_cam_0, self.radial_dist_coeffs_cam_0) + self.camera1.calculate_distortion_penalty(distorted_real_pixels_cam_0, self.radial_dist_coeffs_cam_0)
-        distortion_penalty_cam_1 = camera2.calculate_distortion_penalty(distorted_virtual_pixels_cam_1, self.radial_dist_coeffs_cam_1) + camera2.calculate_distortion_penalty(distorted_real_pixels_cam_1, self.radial_dist_coeffs_cam_1)        
-        """
-
+      
         distortion_penalty_cam_0 = self.camera1.calculate_distortion_penalty(recon_pixels_1, 
                                                                              self.radial_dist_coeffs_cam_0)
         distortion_penalty_cam_1 = camera2.calculate_distortion_penalty(recon_pixels_2,
                                                                         self.radial_dist_coeffs_cam_1)
-        
-        return recon_3D, closest_distance, closest_distance_virtual, recon_pixels_1, recon_pixels_2, recon_3D_real, recon_3D_virtual, distortion_penalty_cam_0, distortion_penalty_cam_1, intersection_penalty_1, intersection_penalty_2, pairwise_distance
+        output = {}
+        output['recon_3D'] = recon_3D
+        output['recon_3D_real'] = recon_3D_real
+        output['recon_3D_virtual'] = recon_3D_virtual
+        output['recon_3D_12'] = recon_3D_12
+        output['recon_3D_21'] = recon_3D_21
+        output['recon_3D_1'] = recon_3D_1
+        output['recon_3D_2'] = recon_3D_2
+        output['closest_distance'] = closest_distance
+        output['closest_distance_real'] = closest_distance_real
+        output['closest_distance_virtual'] = closest_distance_virtual
+        output['closest_distance_1'] = closest_distance_1
+        output['closest_distance_2'] = closest_distance_2
+        output['closest_distance_12'] = closest_distance_12
+        output['closest_distance_21'] = closest_distance_21
+        output['recon_pixels_1'] = recon_pixels_1
+        output['recon_pixels_2'] = recon_pixels_2
+        output['intersection_penalty_1'] = intersection_penalty_1
+        output['intersection_penalty_2'] = intersection_penalty_2
+        output['distortion_penalty_cam_0'] = distortion_penalty_cam_0
+        output['distortion_penalty_cam_1'] = distortion_penalty_cam_1
+        output['pairwise_distance'] = pairwise_distance        
+        return output
 
 
     def visualize(self, pixels_virtual_two_cams, color_labels=None):
@@ -734,7 +755,13 @@ class Arena_reprojection_loss_single_camera_prism(nn.Module):
         recon_distorted_pixels_cam_0 = self.camera1.distort_pixels(recon_undistorted_real_pixels_cam_0)
         #recon_distorted_pixels_cam_0 = recon_undistorted_real_pixels_cam_0
         distortion_penalty_cam_0 = self.camera1.calculate_distortion_penalty(distorted_virtual_pixels_cam_0) + self.camera1.calculate_distortion_penalty(distorted_real_pixels_cam_0)
-        return recon_3D, closest_distance, recon_distorted_pixels_cam_0, intersection_penalty_1, distortion_penalty_cam_0
+        output = {}
+        output['recon_3D'] = recon_3D
+        output['closest_distance'] = closest_distance
+        output['recon_distorted_pixels_cam_0'] = recon_distorted_pixels_cam_0
+        output['intersection_penalty_1'] = intersection_penalty_1
+        output['distortion_penalty_cam_0'] = distortion_penalty_cam_0
+        return output
 
 
     def visualize(self, pixels_virtual_two_cams, color_labels=None):
@@ -1012,8 +1039,13 @@ class Arena_two_real_cameras(nn.Module):
                     dim=0) + torch.norm(recon_distorted_real_pixels_cam_1 - distorted_real_pixels_cam_1, 
                     p=2, 
                     dim=0)) / 2
-        
-        return recon_3D, closest_distance, recon_distorted_real_pixels_cam_0, recon_distorted_real_pixels_cam_1, recon_loss_real
+        output = {}
+        output['recon_3D'] = recon_3D
+        output['closest_distance'] = closest_distance
+        output['recon_distorted_real_pixels_cam_0'] = recon_distorted_real_pixels_cam_0
+        output['recon_distorted_real_pixels_cam_1'] = recon_distorted_real_pixels_cam_1
+        output['recon_loss_real'] = recon_loss_real
+        return output    
 
 
     def visualize(self, pixels_virtual_two_cams, color_labels=None):
@@ -1635,7 +1667,14 @@ class Arena_two_real_cameras_grid_distance(nn.Module):
             distorted_real_pixels_cam_0) + euclidean_distance(
             recon_distorted_real_pixels_cam_1,
             distorted_real_pixels_cam_1)) / 4
-        return recon_3D, closest_distance, recon_distorted_real_pixels_cam_0, recon_distorted_real_pixels_cam_1, recon_loss_real, pairwise_distance
+        output = {}
+        output['recon_3D'] = recon_3D
+        output['closest_distance'] = closest_distance
+        output['recon_distorted_real_pixels_cam_0'] = recon_distorted_real_pixels_cam_0
+        output['recon_distorted_real_pixels_cam_1'] = recon_distorted_real_pixels_cam_1
+        output['recon_loss_real'] = recon_loss_real
+        output['pairwise_distance'] = pairwise_distance
+        return output
 
 
     def visualize(self, pixels_virtual_two_cams, color_labels=None):
