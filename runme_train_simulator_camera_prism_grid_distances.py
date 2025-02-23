@@ -553,7 +553,7 @@ arena.load_state_dict(checkpoint['model_state_dict'])
 # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
 output = arena(pixels_virtual_two_cams_test, pixels_real_two_cams_test)
-recon_3D_test, closest_dist_test, recon_pixels_1, recon_pixels_2, recon_3D_real, real_3D_virtual, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2, pairwise_distance_test_ = output['recon_3D'], output['closest_distance'], output['recon_pixels_1'], output['recon_pixels_2'], output['recon_3D_real'], output['real_3D_virtual'], output['dist_penalty_1'], output['dist_penalty_2'], output['int_penalty_1'], output['int_penalty_2'], output['pairwise_distance_recon']
+recon_3D_test, closest_dist_test, recon_pixels_1, recon_pixels_2, recon_3D_real, real_3D_virtual, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2, pairwise_distance_test_ = output['recon_3D'], output['closest_distance'], output['recon_pixels_1'], output['recon_pixels_2'], output['recon_3D_real'], output['recon_3D_virtual'], output['distortion_penalty_cam_0'], output['distortion_penalty_cam_1'], output['intersection_penalty_1'], output['intersection_penalty_2'], output['pairwise_distance']
 pairwise_distance_loss = torch.abs(pairwise_distance_test_ - pairwise_distance_test).mean()
 target_coordinates_test_stacked = torch.hstack((target_coordinates_test[:3,:], target_coordinates_test[3:,:]))
 triangulation_loss = euclidean_distance(
