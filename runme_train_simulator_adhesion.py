@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader, random_split, Dataset
 pi = torch.tensor(np.pi)
 torch.autograd.set_detect_anomaly(True)
 import datetime
-from arenas import Arena_adhesion_layer
+from arenas.prism_arenas import Arena_adhesion_layer
 
 
 #%% Dataloader

@@ -13,7 +13,7 @@ pi = torch.tensor(np.pi, dtype=torch.float64)
 torch.autograd.set_detect_anomaly(True)
 import datetime
 import time
-from arenasEfficient import Arena_reprojection_loss_two_cameras_prism_grid_distances
+from arenas.prism_arenas import Arena_reprojection_loss_two_cameras_prism_grid_distances
 from utils import euclidean_distance
 from torch.utils.tensorboard import SummaryWriter
 

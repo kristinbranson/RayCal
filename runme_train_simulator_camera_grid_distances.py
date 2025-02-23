@@ -14,7 +14,7 @@ pi = torch.tensor(np.pi, dtype=torch.float64)
 torch.autograd.set_detect_anomaly(True)
 import datetime
 import time
-from arenasEfficient import Arena_two_real_cameras_grid_distance
+from arenas.camera_arenas import Arena_two_real_cameras_grid_distance
 from utils import euclidean_distance
 
 #%% Dataloader
