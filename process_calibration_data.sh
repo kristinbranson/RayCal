@@ -103,3 +103,6 @@ echo "Detecting and saving dotted grids from cam_02 and cam_13"
 
 echo "Exporting grid coordinates in a format ready for calibration"
 /misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; run('runme_export_data_two_cams.m')"
+
+echo "Exporting prism initialization"
+/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; run('runme_annotate_prism_initialization_image.m')"
