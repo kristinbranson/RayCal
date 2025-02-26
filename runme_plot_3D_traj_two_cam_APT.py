@@ -1,6 +1,6 @@
 import openpyxl
 import torch
-from arenasEfficient import Arena_reprojection_loss_two_cameras_prism_grid_distances
+from arenas.prism_arenas import Arena_reprojection_loss_two_cameras_prism_grid_distances
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import cv2 
@@ -30,7 +30,7 @@ def draw_axes(image, center_x, center_y, length, color, axis1_name, axis2_name):
     cv2.putText(image, axis2_name, (center_x - length // 2, center_y - length + length // 4), font, font_scale, color, font_thickness, cv2.LINE_AA)
     return image
 
-def get_plot_limits(recon_3D, zoom_factor=1):
+def get_plot_limits(recon_3D, zoom_factor=5):
     """
     Get the limits for the 3D plot of 3-D reconstructed trajectory
     recon_3D: torch.Tensor of shape (3, num_annotations, num_keypoints)
@@ -56,11 +56,11 @@ def get_plot_limits(recon_3D, zoom_factor=1):
     z_max = z_max + zoom_out_factor * (z_width)
     return x_min, x_max, y_min, y_max, z_min, z_max
 
-excel_file_path = '/groups/branson/bransonlab/aniket/APT/exp20v2_labels.xlsx'
+excel_file_path = '/groups/branson/bransonlab/aniket/APT/exp23_1_labels.xlsx'
 
 #%%
 # Load data
-model_checkpoint_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/refraction_model/calprism/outputs/model_checkpoints/exp_20_2025_2_11_17_51_27'
+model_checkpoint_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/refraction_model/calprism/outputs/model_checkpoints/exp_23_2025_2_26_1_41_7'
 #2024_12_26_12_53_16
 output_video_path = excel_file_path.split('.')[0]
 save_video = True
@@ -119,6 +119,8 @@ real_pixels_cam_0 = torch.zeros((2, num_annotations, num_keypoints)).to(torch.fl
 virtual_pixels_cam_0 = torch.zeros_like(real_pixels_cam_0)
 real_pixels_cam_1 = torch.zeros_like(real_pixels_cam_0)
 virtual_pixels_cam_1 = torch.zeros_like(real_pixels_cam_1)
+real_pixels_cam_0_recon = torch.zeros_like(real_pixels_cam_0)
+real_pixels_cam_1_recon = torch.zeros_like(real_pixels_cam_1)
 
 frames = []
 im_files = []
@@ -141,23 +143,30 @@ with torch.no_grad():
     virtual_pixels_cam_0_ = virtual_pixels_cam_0.flatten(1).repeat(2,1)
     real_pixels_cam_1_ = real_pixels_cam_1.flatten(1).repeat(2,1)
     virtual_pixels_cam_1_ = virtual_pixels_cam_1.flatten(1).repeat(2,1)
-    virtual_pixels_two_cams = torch.vstack((virtual_pixels_cam_1_, virtual_pixels_cam_0_))
+    virtual_pixels_two_cams = torch.vstack((virtual_pixels_cam_0_, virtual_pixels_cam_1_))
     real_pixels_two_cams = torch.vstack((real_pixels_cam_0_, virtual_pixels_cam_1_))
-    recon_3D, closest_distance, closest_distance_virtual, recon_pixels_1, recon_pixels_2, recon_3D_real, recon_3D_virtual, distortion_penalty_cam_0, distortion_penalty_cam_1, intersection_penalty_1, intersection_penalty_2, pairwise_distance = arena(
+    output = arena(
         virtual_pixels_two_cams, 
         real_pixels_two_cams,
     )
+    closest_distance_virtual, recon_pixels_0_virtual, recon_pixels_1_virtual, recon_3D_real, recon_3D_virtual, distortion_penalty_cam_0, distortion_penalty_cam_1, intersection_penalty_1, intersection_penalty_2, pairwise_distance = output['closest_distance_virtual'], output['recon_pixels_0_virtual'], output['recon_pixels_1_virtual'], output['recon_3D_real'], output['recon_3D_virtual'], output['distortion_penalty_cam_0'], output['distortion_penalty_cam_1'], output['intersection_penalty_1'], output['intersection_penalty_2'], output['pairwise_distance']
+    recon_pixels_0_virtual = recon_pixels_0_virtual[:, :recon_pixels_0_virtual.shape[1] // 2]
+    recon_pixels_0_virtual = recon_pixels_0_virtual.view(2, num_annotations, num_keypoints)
+    recon_pixels_1_virtual = recon_pixels_1_virtual[:, :recon_pixels_1_virtual.shape[1] // 2]
+    recon_pixels_1_virtual = recon_pixels_1_virtual.view(2, num_annotations, num_keypoints)
+    
+
     recon_3D = recon_3D_virtual[:, :recon_3D_virtual.shape[1] // 2] # discarding repeating second half
 #    recon_3D = recon_3D[:, :recon_3D.shape[1]//2] # discarding repeating second half 
     recon_3D = recon_3D.view(3, num_annotations, num_keypoints)
 
-cam_0_im_path = '/groups/branson/bransonlab/aniket/APT/deepnet/images0/'
-cam_1_im_path = '/groups/branson/bransonlab/aniket/APT/deepnet/images1/'
+cam_0_im_path = '/groups/branson/bransonlab/aniket/APT/deepnet/images1_exp23/'
+cam_1_im_path = '/groups/branson/bransonlab/aniket/APT/deepnet/images2_exp23/'
 im_files_cam_0 = [os.path.join(cam_0_im_path, filename) for filename in os.listdir(cam_0_im_path)]
 im_files_cam_1 = [os.path.join(cam_1_im_path, filename) for filename in os.listdir(cam_1_im_path)]
 
 
-fig = plt.figure(figsize=(40, 18))
+fig = plt.figure(figsize=(40, 25))
 #ax = fig.add_subplot(projection='3d')
 gs = gridspec.GridSpec(1, 2, width_ratios=[1, 1.5])  # Equal width for both columns
 # Create subplots
@@ -165,8 +174,11 @@ ax1 = fig.add_subplot(gs[0, 0], projection='3d')  # Larger subplot spanning both
 ax2 = fig.add_subplot(gs[0, 1])  # Smaller subplot on the left
 
 links = [[i, i + 6, i + 12] for i in range(6)]
+links = links + [[18, 12]] + [[18, 15]]
 links_colors = ['tab:blue', 'tab:orange', 'tab:green', 
                 'tab:blue', 'tab:orange', 'tab:green',
+                'gray', 
+                'gray',
                 ]
 link_linewidths = [1, 1, 1, 1, 1, 1, 1, 1]
 link_linewidths = [3 * width for width in link_linewidths]
@@ -265,7 +277,7 @@ def update(frame_id):
         )
     
     ax1.set_aspect('equal', adjustable='box')
-    ax1.view_init(elev=-30., azim=-70., roll=80.)
+    ax1.view_init(elev=-90., azim=0., roll=0.)
     
     #im = plt.imread(im_files[frame_id-1]).T
     print(f'Reading frame {im_files_cam_0[frames[frame_id] - 1]}')
@@ -289,21 +301,27 @@ def update(frame_id):
     ax2.imshow(im)
     
 
-    ax2.scatter(virtual_pixels_cam_0[0, frame_id, :] + im2_offset_X, 
+    ax2.scatter(virtual_pixels_cam_0[0, frame_id, :], 
                 virtual_pixels_cam_0[1, frame_id, :], 
                 s=10, color='tab:gray')
-    ax2.scatter(virtual_pixels_cam_1[0, frame_id, :],
+    ax2.scatter(virtual_pixels_cam_1[0, frame_id, :] + im2_offset_X,
                 virtual_pixels_cam_1[1, frame_id, :], 
+                s=10, color='tab:gray')
+    ax2.scatter(recon_pixels_0_virtual[0, frame_id, :],
+                recon_pixels_0_virtual[1, frame_id, :],
+                s=10, color='tab:gray')
+    ax2.scatter(recon_pixels_1_virtual[0, frame_id, :] + im2_offset_X,
+                recon_pixels_1_virtual[1, frame_id, :],
                 s=10, color='tab:gray')
     
                 
     for link in links:
-        ax2.plot(virtual_pixels_cam_0[0, frame_id, link] + im2_offset_X,
+        ax2.plot(virtual_pixels_cam_0[0, frame_id, link],
                 virtual_pixels_cam_0[1, frame_id, link],
                 color=links_colors[links.index(link)],
                 linewidth=link_linewidths[links.index(link)] 
         )
-        ax2.plot(virtual_pixels_cam_1[0, frame_id, link] ,
+        ax2.plot(virtual_pixels_cam_1[0, frame_id, link] + im2_offset_X,
                 virtual_pixels_cam_1[1, frame_id, link],
                 color=links_colors[links.index(link)],
                 linewidth=0.75*link_linewidths[links.index(link)]
@@ -318,13 +336,13 @@ def update(frame_id):
     plt.subplots_adjust(top = 0.85, bottom = 0, right = 0.96, left = 0, hspace = 0, wspace = 0)  
     plt.draw()
 
-
+#num_annotations = 1
 if not save_video:
     for frame_id in range(0, num_annotations):  
         update(frame_id)
         plt.pause(0.01)
 
-#num_annotations = 1
+
 if save_video:
     ani = animation.FuncAnimation(
         fig, update, frames=num_annotations, 
