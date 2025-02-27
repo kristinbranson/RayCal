@@ -77,19 +77,19 @@ fi
 imageDir=$(find "$cam0Dir" -maxdepth 1 -type d -name "image_*")
 mjpgPath=$(find "$imageDir" -type f -name '*.mjpg')
 echo "$imageDir"
-ffmpeg -i "$mjpgPath" "$imageDir/image_%04d.png"
+ffmpeg -i "$mjpgPath" "$cam0Dir/image_%04d.png"
 
 imageDir=$(find "$cam1Dir" -maxdepth 1 -type d -name "image_*")
 mjpgPath=$(find "$imageDir" -type f -name '*.mjpg')
-ffmpeg -i "$mjpgPath" "$imageDir/image_%04d.png"
+ffmpeg -i "$mjpgPath" "$cam1Dir/image_%04d.png"
 
 imageDir=$(find "$cam02Dir" -maxdepth 1 -type d -name "image_*")
 mjpgPath=$(find "$imageDir" -type f -name '*.mjpg')
-ffmpeg -i "$mjpgPath" "$imageDir/image_%04d.png"
+ffmpeg -i "$mjpgPath" "$cam02Dir/image_%04d.png"
 
 imageDir=$(find "$cam13Dir" -maxdepth 1 -type d -name "image_*")
 mjpgPath=$(find "$imageDir" -type f -name '*.mjpg')
-ffmpeg -i "$mjpgPath" "$imageDir/image_%04d.png"
+ffmpeg -i "$mjpgPath" "$cam13Dir/image_%04d.png"
 
 cd /groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/
 echo "Detecting and saving dotted grids from cam_0 and cam_1. These will be used for estimating camera intrinsics"
@@ -106,3 +106,6 @@ echo "Exporting grid coordinates in a format ready for calibration"
 
 echo "Exporting prism initialization"
 /misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; run('runme_annotate_prism_initialization_image.m')"
+
+echo "Training calibration model using pytorch-based ray-tracing"
+python runme_train_simulator_camera_prism_grid_distances.py --exp_id $1
