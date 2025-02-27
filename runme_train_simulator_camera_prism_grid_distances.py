@@ -16,7 +16,7 @@ import time
 from arenas.prism_arenas import Arena_reprojection_loss_two_cameras_prism_grid_distances
 from utils import euclidean_distance
 from torch.utils.tensorboard import SummaryWriter
-
+import argparse
 
 #%% Dataloader
 class CalibrationDataset(Dataset):
@@ -36,7 +36,11 @@ class CalibrationDataset(Dataset):
 
 #%% Load camera calibration results
 load_checkpoint = False
-exp_id = 20
+parser = argparse.ArgumentParser()
+parser.add_argument("--exp_id", type=int, help="Experiment ID")
+args = parser.parse_args()
+
+exp_id = args.exp_id
 calibration_results_dir = f'/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/exp_{exp_id}/results/'
 calibration_results_file = 'dotted_grid_pairwise_data.mat'
 calibration_results_path = os.path.join(calibration_results_dir, calibration_results_file)
