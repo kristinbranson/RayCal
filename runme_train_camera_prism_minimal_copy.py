@@ -14,7 +14,7 @@ pi = torch.tensor(np.pi).to(torch.float64)
 torch.autograd.set_detect_anomaly(True)
 import datetime
 from torch.optim.lr_scheduler import StepLR
-from arenas import Arena_3D_loss
+from arenas.prism_arenas import Arena_3D_loss
 from utils import euclidean_distance
 
 

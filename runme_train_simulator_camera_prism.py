@@ -14,7 +14,7 @@ pi = torch.tensor(np.pi, dtype=torch.float64)
 torch.autograd.set_detect_anomaly(True)
 import datetime
 import time
-from arenasEfficient import Arena_reprojection_loss_two_cameras
+from arenas.prism_arenas import Arena_reprojection_loss_two_cameras
 from utils import euclidean_distance
 
 
@@ -181,9 +181,11 @@ def train_two_cams(model, train_loader, criterion, plot=False):
         for input, label_2D, label_3D in train_loader:         
             num_examples = input.shape[0]       
             optimizer.zero_grad()
-            recon_3D, closest_distance, recon_pixels_1, recon_pixels_2, recon_distorted_virtual_pixels_1, recon_distorted_virtual_pixels_2, recon_distorted_real_pixels_1, recon_distorted_real_pixels_2, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2 = model(
+            output = model(
                 input.T,
                 label_2D.T)
+            recon_3D, closest_distance, recon_pixels_1, recon_pixels_2, recon_distorted_virtual_pixels_1, recon_distorted_virtual_pixels_2, recon_distorted_real_pixels_1, recon_distorted_real_pixels_2, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2 = output['recon_3D'], output['closest_distance_mean'], output['recon_pixels_1'], output['recon_pixels_2'], output['recon_distorted_virtual_pixels_1'], output['recon_distorted_virtual_pixels_2'], output['recon_distorted_real_pixels_1'], output['recon_distorted_real_pixels_2'], output['dist_penalty_1'], output['dist_penalty_2'], output['int_penalty_1'], output['int_penalty_2']
+            
             
             if plot:                
                 rand_ind = torch.randperm(recon_distorted_virtual_pixels_1.shape[1])
@@ -269,8 +271,8 @@ def validate(model, val_loader, criterion):
     reprojection_loss = 0.
     with torch.no_grad():
         for input, label_2D, label_3D in val_loader:
-            recon_3D, closest_distance, recon_pixels_1, recon_pixels_2, recon_distorted_virtual_pixels_1, recon_distorted_virtual_pixels_2, recon_distorted_real_pixels_1, recon_distorted_real_pixels_2, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2 = model(input.T, label_2D.T)
-
+            output = model(input.T, label_2D.T)
+            recon_3D, closest_distance, recon_pixels_1, recon_pixels_2, recon_distorted_virtual_pixels_1, recon_distorted_virtual_pixels_2, recon_distorted_real_pixels_1, recon_distorted_real_pixels_2, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2 = output['recon_3D'], output['closest_distance_mean'], output['recon_pixels_1'], output['recon_pixels_2'], output['recon_distorted_virtual_pixels_1'], output['recon_distorted_virtual_pixels_2'], output['recon_distorted_real_pixels_1'], output['recon_distorted_real_pixels_2'], output['dist_penalty_1'], output['dist_penalty_2'], output['int_penalty_1'], output['int_penalty_2']
             recon_pixels = torch.cat((recon_distorted_virtual_pixels_1,
             recon_distorted_virtual_pixels_2), dim=0)
 
@@ -436,8 +438,8 @@ checkpoint = torch.load(PATH, weights_only=True)
 arena.load_state_dict(checkpoint['model_state_dict'])
 # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
-recon_3D_test, closest_dist_test, recon_pixels_1, recon_pixels_2, recon_distorted_virtual_pixels_1, recon_distorted_virtual_pixels_2, recon_distorted_real_pixels_1, recon_distorted_real_pixels_2, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2 = arena(pixels_virtual_two_cams_test, 
-                                                        pixels_real_two_cams_test)
+output = arena(pixels_virtual_two_cams_test, pixels_real_two_cams_test)
+recon_3D_test, closest_dist_test, recon_pixels_1, recon_pixels_2, recon_distorted_virtual_pixels_1, recon_distorted_virtual_pixels_2, recon_distorted_real_pixels_1, recon_distorted_real_pixels_2, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2 = output['recon_3D'], output['closest_distance_mean'], output['recon_pixels_1'], output['recon_pixels_2'], output['recon_distorted_virtual_pixels_1'], output['recon_distorted_virtual_pixels_2'], output['recon_distorted_real_pixels_1'], output['recon_distorted_real_pixels_2'], output['dist_penalty_1'], output['dist_penalty_2'], output['int_penalty_1'], output['int_penalty_2']
 triangulation_loss = euclidean_distance(
     recon_3D_test, target_coordinates_test
 ).mean()

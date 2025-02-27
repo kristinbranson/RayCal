@@ -14,7 +14,7 @@ pi = torch.tensor(np.pi, dtype=torch.float64)
 torch.autograd.set_detect_anomaly(True)
 import datetime
 import time
-from arenasEfficient import Arena_single_camera_prism_grid_image
+from arenas.prism_arenas import Arena_single_camera_prism_grid_image
 from utils import euclidean_distance
 from torch.utils.tensorboard import SummaryWriter
 

@@ -13,10 +13,10 @@ pi = torch.tensor(np.pi, dtype=torch.float64)
 torch.autograd.set_detect_anomaly(True)
 import datetime
 import time
-from arenasEfficient import Arena_reprojection_loss_two_cameras_prism_grid_distances
+from arenas.prism_arenas import Arena_reprojection_loss_two_cameras_prism_grid_distances
 from utils import euclidean_distance
 from torch.utils.tensorboard import SummaryWriter
-
+import argparse
 
 #%% Dataloader
 class CalibrationDataset(Dataset):
@@ -36,7 +36,11 @@ class CalibrationDataset(Dataset):
 
 #%% Load camera calibration results
 load_checkpoint = False
-exp_id = 20
+parser = argparse.ArgumentParser()
+parser.add_argument("--exp_id", type=int, help="Experiment ID")
+args = parser.parse_args()
+
+exp_id = args.exp_id
 calibration_results_dir = f'/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/exp_{exp_id}/results/'
 calibration_results_file = 'dotted_grid_pairwise_data.mat'
 calibration_results_path = os.path.join(calibration_results_dir, calibration_results_file)
@@ -216,10 +220,10 @@ def train_two_cams(model, train_loader, criterion, plot=False):
         for i, (input, label_2D, label_3D, pairwise_distance_batch) in enumerate(train_loader):
             num_examples = input.shape[0]       
             optimizer.zero_grad()
-            recon_3D, closest_distance, recon_pixels_1, recon_pixels_2, recon_3D_virtual, recon_3D_real, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2, pairwise_distance_recon = model(
+            output = model(
                 input.T,
                 label_2D.T)
-
+            recon_3D, closest_distance, recon_pixels_1, recon_pixels_2, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2, pairwise_distance_recon = output['recon_3D'], output['closest_distance'], output['recon_pixels_1'], output['recon_pixels_2'], output['distortion_penalty_cam_0'], output['distortion_penalty_cam_1'], output['intersection_penalty_1'], output['intersection_penalty_2'], output['pairwise_distance']
             d_pairwise_distance = (pairwise_distance_recon - pairwise_distance_batch)
             pairwise_distance_loss = torch.abs(d_pairwise_distance).sum() # Sum of root squared error
             label_2D_cam_0 = torch.vstack((label_2D[:,:2], label_2D[:,2:4]))
@@ -316,8 +320,8 @@ def validate(model, val_loader, criterion):
     pairwise_dist_loss = 0.
     with torch.no_grad():
         for i, (input, label_2D, label_3D, pairwise_distance_batch) in enumerate(val_loader):
-            recon_3D, closest_distance, recon_pixels_1, recon_pixels_2, recon_3D_real, recon_3D_virtual, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2, pairwise_distance_recon = model(input.T, label_2D.T)
-
+            output = model(input.T, label_2D.T)
+            recon_3D, closest_distance, recon_pixels_1, recon_pixels_2, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2, pairwise_distance_recon = output['recon_3D'], output['closest_distance'], output['recon_pixels_1'], output['recon_pixels_2'], output['distortion_penalty_cam_0'], output['distortion_penalty_cam_1'], output['intersection_penalty_1'], output['intersection_penalty_2'], output['pairwise_distance']
             d_pairwise_distance = (pairwise_distance_recon - pairwise_distance_batch)
             pairwise_distance_loss = torch.abs(d_pairwise_distance).sum() # Sum of root squared error
 
@@ -552,7 +556,8 @@ checkpoint = torch.load(PATH, weights_only=True)
 arena.load_state_dict(checkpoint['model_state_dict'])
 # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
-recon_3D_test, closest_dist_test, recon_pixels_1, recon_pixels_2, recon_3D_real, real_3D_virtual, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2, pairwise_distance_test_ = arena(pixels_virtual_two_cams_test, pixels_real_two_cams_test)
+output = arena(pixels_virtual_two_cams_test, pixels_real_two_cams_test)
+recon_3D_test, closest_dist_test, recon_pixels_1, recon_pixels_2, recon_3D_real, real_3D_virtual, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2, pairwise_distance_test_ = output['recon_3D'], output['closest_distance'], output['recon_pixels_1'], output['recon_pixels_2'], output['recon_3D_real'], output['recon_3D_virtual'], output['distortion_penalty_cam_0'], output['distortion_penalty_cam_1'], output['intersection_penalty_1'], output['intersection_penalty_2'], output['pairwise_distance']
 pairwise_distance_loss = torch.abs(pairwise_distance_test_ - pairwise_distance_test).mean()
 target_coordinates_test_stacked = torch.hstack((target_coordinates_test[:3,:], target_coordinates_test[3:,:]))
 triangulation_loss = euclidean_distance(

@@ -14,7 +14,7 @@ pi = torch.tensor(np.pi, dtype=torch.float64)
 torch.autograd.set_detect_anomaly(True)
 import datetime
 import time
-from arenasEfficient import Arena_fish_tank_pairwise_distances
+from arenas.fish_tank_arenas import Arena_fish_tank_pairwise_distances
 from utils import euclidean_distance
 from torch.utils.tensorboard import SummaryWriter
 

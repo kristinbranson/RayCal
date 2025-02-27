@@ -13,8 +13,11 @@ import os
 import scipy.io as sio
 import torch.nn as nn
 from utils import euclidean_distance
-#mpl.use('TkAgg') # Use this if working on the PC
-mpl.use('QtAgg') # Use this if working remotely with NoMachine
+try:
+    mpl.use('QtAgg') # Use this if working remotely with NoMachine
+except Exception as e:    
+    mpl.use('TkAgg') # Use this if working on the PC
+
 plt.ion()
 
 pi = torch.tensor(np.pi).to(torch.float64)
