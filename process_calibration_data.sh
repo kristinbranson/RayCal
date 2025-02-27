@@ -1,7 +1,7 @@
 # Template for this code was produced using GPT-4o mini
 #!/bin/bash
 
-rootDataDir='/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/'
+rootDataDir='/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/' # This is the directory where imaging data from all experiments is stored in separate folders named exp_xx
 # Check if a directory argument is provided
 if [ "$#" -ne 1 ]; then
 	echo "Usage: $0 <experiment_id (int)>"
@@ -77,32 +77,34 @@ fi
 imageDir=$(find "$cam0Dir" -maxdepth 1 -type d -name "image_*")
 mjpgPath=$(find "$imageDir" -type f -name '*.mjpg')
 echo "$imageDir"
-ffmpeg -i "$mjpgPath" "$imageDir/image_%04d.png"
+ffmpeg -i "$mjpgPath" "$cam0Dir/image_%04d.png"
 
 imageDir=$(find "$cam1Dir" -maxdepth 1 -type d -name "image_*")
 mjpgPath=$(find "$imageDir" -type f -name '*.mjpg')
-ffmpeg -i "$mjpgPath" "$imageDir/image_%04d.png"
+ffmpeg -i "$mjpgPath" "$cam1Dir/image_%04d.png"
 
 imageDir=$(find "$cam02Dir" -maxdepth 1 -type d -name "image_*")
 mjpgPath=$(find "$imageDir" -type f -name '*.mjpg')
-ffmpeg -i "$mjpgPath" "$imageDir/image_%04d.png"
+ffmpeg -i "$mjpgPath" "$cam02Dir/image_%04d.png"
 
 imageDir=$(find "$cam13Dir" -maxdepth 1 -type d -name "image_*")
 mjpgPath=$(find "$imageDir" -type f -name '*.mjpg')
-ffmpeg -i "$mjpgPath" "$imageDir/image_%04d.png"
+ffmpeg -i "$mjpgPath" "$cam13Dir/image_%04d.png"
 
-cd /groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/
 echo "Detecting and saving dotted grids from cam_0 and cam_1. These will be used for estimating camera intrinsics"
-/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; run('runme_annotate_circular_grid_points_automated.m')"
+/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; run('matlab_scripts/runme_annotate_circular_grid_points_automated.m')"
 
 echo "Calibrating camera intrinsics and saving them"
-/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; run('runme_calibrate_grid_automated.m')"
+/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; run('matlab_scripts/runme_calibrate_grid_automated.m')"
 
 echo "Detecting and saving dotted grids from cam_02 and cam_13"
-/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; run('runme_annotate_grid_prism.m')"
+/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; run('matlab_scripts/runme_annotate_grid_prism.m')"
 
 echo "Exporting grid coordinates in a format ready for calibration"
-/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; run('runme_export_data_two_cams.m')"
+/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; run('matlab_scripts/runme_export_data_two_cams.m')"
 
 echo "Exporting prism initialization"
-/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; run('runme_annotate_prism_initialization_image.m')"
+/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; run('matlab_scripts/runme_annotate_prism_initialization_image.m')"
+
+echo "Training calibration model using pytorch-based ray-tracing"
+python runme_train_simulator_camera_prism_grid_distances.py --exp_id $1
