@@ -19,8 +19,8 @@ grid_size = [9, 9];
 grid_spacing = 1;
 
 %% Load data
-
-results_dir = ['../prism_new_led/exp_', num2str(exp_id), '/results/'];
+% dataDir = []; % Get this from the bash script (path to prism_new_led/)
+results_dir = [dataDir, '/exp_', num2str(exp_id), '/results/'];
 
 % Load camera parameters
 camera_parameters_path = [results_dir, 'camera_parameters_', cam_names{1} ,'_', cam_names{2}, '.mat'];
