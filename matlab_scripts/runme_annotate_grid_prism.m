@@ -8,7 +8,8 @@ analyze_all_cams = false;
 tilted_cameras = true;
 waitTimeBetweenImages = 0;
 grid_disp_thresh = 0.1; % (in pixels) This is generally what calibration accuracy is
-exp_root_folder = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/';
+dataDir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/';
+exp_root_folder = dataDir;
 results_folder = [exp_root_folder, '/exp_', num2str(exp_id), '/results', cam_suffix, '/'];
 mkdir(results_folder)
 
@@ -23,7 +24,8 @@ else
     annotations_folder = [exp_root_folder, '/exp_', num2str(exp_id), '/annotations_automated_exp_ref_',num2str(exp_id), '/'];
 end
 
-dividing_col = [1067, 1067]; [1330, 1050];
+dividing_col = [dividing_col, dividing_col];
+%dividing_col = [1067, 1067]; 
 
 save_individual_grid_coordinates = false;
 cam_ids = [1, 2];
