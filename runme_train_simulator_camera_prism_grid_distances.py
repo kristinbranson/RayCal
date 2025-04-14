@@ -9,7 +9,6 @@ import torch.optim as optim
 import torch.nn as nn
 from tqdm import tqdm
 from torch.utils.data import DataLoader, random_split, Dataset
-pi = torch.tensor(np.pi, dtype=torch.float64)
 torch.autograd.set_detect_anomaly(True)
 import datetime
 import time
@@ -39,12 +38,15 @@ load_checkpoint = False
 parser = argparse.ArgumentParser()
 parser.add_argument("--exp_id", type=int, help="Experiment ID")
 args = parser.parse_args()
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+pi = torch.tensor(np.pi, dtype=torch.float64).to(device)
 
 exp_id = args.exp_id
 calibration_results_dir = f'/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/exp_{exp_id}/results/'
 calibration_results_file = 'dotted_grid_pairwise_data.mat'
 calibration_results_path = os.path.join(calibration_results_dir, calibration_results_file)
 prism_initialization_path = os.path.join(calibration_results_dir, 'prism_initialization.mat')
+print('Loaded prism initialization data from {prism_initialization_path}')
 outputs_dir = 'outputs'
 os.makedirs(outputs_dir, exist_ok=True)
 now = datetime.datetime.now()
@@ -61,16 +63,16 @@ undistorted_real_pixels_cam_1 = torch.tensor(mat['output_data_cam_1_pairwise'], 
 target_coordinates = torch.tensor(mat['worldPoints_pairwise'], dtype=torch.float64).T
 pairwise_distance = torch.tensor(mat['pairwise_distances'][:,0]).to(torch.float64)
 stereoParams = mat['stereoParams_export']
-K1 = torch.tensor(stereoParams['CameraParameters1K'][0,0]).to(torch.float64)
-K2 = torch.tensor(stereoParams['CameraParameters2K'][0,0]).to(torch.float64)
-R = torch.tensor(stereoParams['RotationOfCamera2'][0,0]).to(torch.float64)
-T = torch.tensor(stereoParams['TranslationOfCamera2'][0,0]).to(torch.float64).T + 0.
+K1 = torch.tensor(stereoParams['CameraParameters1K'][0,0]).to(torch.float64).to(device)
+K2 = torch.tensor(stereoParams['CameraParameters2K'][0,0]).to(torch.float64).to(device)
+R = torch.tensor(stereoParams['RotationOfCamera2'][0,0]).to(torch.float64).to(device)
+T = torch.tensor(stereoParams['TranslationOfCamera2'][0,0]).to(torch.float64).T.to(device) + 0.
 
 #principal_point_pixel_cam_0 = torch.tensor([640., 512.]).to(torch.float64) 
 #principal_point_pixel_cam_1 = torch.tensor([640., 512.]).to(torch.float64) 
 
-principal_point_pixel_cam_0 = torch.tensor([K1[0,2] - 1, K1[1,2] - 1], dtype=torch.float64)
-principal_point_pixel_cam_1 = torch.tensor([K2[0,2] - 1, K2[1,2] - 1], dtype=torch.float64)
+principal_point_pixel_cam_0 = torch.tensor([K1[0,2] - 1, K1[1,2] - 1], dtype=torch.float64).to(device)
+principal_point_pixel_cam_1 = torch.tensor([K2[0,2] - 1, K2[1,2] - 1], dtype=torch.float64).to(device)
 
 #focal_length_cam_1 = 5206. 
 #focal_length_cam_2 = 5206. 
@@ -136,14 +138,14 @@ prism_annotated_face = 'first'
 prism_corners_path = '/groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/prism_corners_third_plane.mat'
 #prism_corners_path = f'{calibration_results_dir}/prism_corners_{prism_annotated_face}_plane.mat'
 prism_corners = sio.loadmat(prism_corners_path)['worldPoints']
-prism3_axes = torch.zeros(3,3).to(torch.float64)
+prism3_axes = torch.zeros(3,3).to(torch.float64).to(device)
 prism3_axes[:,1] = torch.stack(
-    (torch.tensor(prism_corners[1,:] - prism_corners[0,:], dtype=torch.float64),
+    (torch.tensor(prism_corners[1,:] - prism_corners[0,:], dtype=torch.float64).to(device),
     )
 ).mean(dim=0)
 prism3_axes[:,2] = torch.stack(
-    (torch.tensor(prism_corners[3,:] - prism_corners[0,:], dtype=torch.float64),
-     torch.tensor(prism_corners[2,:] - prism_corners[1,:], dtype=torch.float64)
+    (torch.tensor(prism_corners[3,:] - prism_corners[0,:], dtype=torch.float64).to(device),
+     torch.tensor(prism_corners[2,:] - prism_corners[1,:], dtype=torch.float64).to(device)
      )
 ).mean(dim=0)
 
@@ -154,37 +156,37 @@ if prism_annotated_face == 'third':
 
     prism_a = 20.
     prism_b = 20.
-    prism3_center = torch.tensor(prism_corners, dtype=torch.float64).mean(dim=0)
+    prism3_center = torch.tensor(prism_corners, dtype=torch.float64).mean(dim=0).to(device)
     prism1_center = prism3_center + prism_b/2 * prism1_axes[:,0] - prism_b/2 * prism1_axes[:,2] 
 
 elif prism_annotated_face == 'first':
     prism1_axes = torch.zeros(3,3).to(torch.float64)
     prism1_axes[:,1] = torch.stack(
-    (torch.tensor(prism_corners[1,:] - prism_corners[0,:], dtype=torch.float64),
+    (torch.tensor(prism_corners[1,:] - prism_corners[0,:], dtype=torch.float64).to(device),
     )
     ).mean(dim=0)
     prism1_axes[:,2] = torch.stack(
-    (torch.tensor(prism_corners[3,:] - prism_corners[0,:], dtype=torch.float64),
-     torch.tensor(prism_corners[2,:] - prism_corners[1,:], dtype=torch.float64)
+    (torch.tensor(prism_corners[3,:] - prism_corners[0,:], dtype=torch.float64).to(device),
+     torch.tensor(prism_corners[2,:] - prism_corners[1,:], dtype=torch.float64).to(device)
      )
     ).mean(dim=0)
-    prism1_center = torch.tensor(prism_corners, dtype=torch.float64).mean(dim=0)
+    prism1_center = torch.tensor(prism_corners, dtype=torch.float64).mean(dim=0).to(device)
     prism1_axes[:,0] = torch.linalg.cross(prism1_axes[:,1], prism1_axes[:,2])
     prism1_axes = prism1_axes / torch.linalg.norm(prism1_axes, dim=0)
 
 plane = Plane(axes=prism1_axes)
-prism_angles = torch.tensor([plane.alpha, plane.beta, plane.gamma], dtype=torch.float64)
-prism_angles = torch.tensor([-1.8710,  1.4078, -1.9315], dtype=torch.float64) # Some old optimization results
+prism_angles = torch.tensor([plane.alpha, plane.beta, plane.gamma], dtype=torch.float64).to(device)
+prism_angles = torch.tensor([-1.8710,  1.4078, -1.9315], dtype=torch.float64).to(device) # Some old optimization results
 prism1_center[2] = 250.
 
 #%% Initialize an Arena instance
 #prism_angles = torch.tensor([-1.5341, 1.3650, -1.5638], dtype=torch.float64)
 #prism_center = torch.tensor([-6.5058, -5.6897, 149.0993], dtype=torch.float64)
 prism_initializations = sio.loadmat(prism_initialization_path)
-prism_center = torch.tensor(prism_initializations['location_prism']).to(torch.float64).T
-prism_axes = torch.tensor(prism_initializations['axes_prism']).to(torch.float64)
+prism_center = torch.tensor(prism_initializations['location_prism']).to(torch.float64).T.to(device)
+prism_axes = torch.tensor(prism_initializations['axes_prism']).to(torch.float64).to(device)
 plane = Plane(axes=prism_axes)
-prism_angles = torch.tensor([plane.alpha, plane.beta, plane.gamma], dtype=torch.float64)
+prism_angles = torch.tensor([plane.alpha, plane.beta, plane.gamma], dtype=torch.float64).to(device)
 
 arena = Arena_reprojection_loss_two_cameras_prism_grid_distances(principal_point_pixel_cam_0,
             principal_point_pixel_cam_1, 
@@ -220,6 +222,10 @@ def train_two_cams(model, train_loader, criterion, plot=False):
         for i, (input, label_2D, label_3D, pairwise_distance_batch) in enumerate(train_loader):
             num_examples = input.shape[0]       
             optimizer.zero_grad()
+            input = input.to(device)
+            label_2D = label_2D.to(device)
+            label_3D = label_3D.to(device)
+            pairwise_distance_batch = pairwise_distance_batch.to(device)
             output = model(
                 input.T,
                 label_2D.T)
@@ -234,27 +240,27 @@ def train_two_cams(model, train_loader, criterion, plot=False):
                 rand_ind = torch.randperm(recon_pixels_1.shape[1])
                 plt.subplot(121)
                 plt.scatter(
-                    recon_pixels_1[0,rand_ind].detach().numpy(),
-                    recon_pixels_1[1,rand_ind].detach().numpy(),
+                    recon_pixels_1[0,rand_ind].cpu().detach().numpy(),
+                    recon_pixels_1[1,rand_ind].cpu().detach().numpy(),
                     s=0.5,
                     c='r',
                 )
                 plt.scatter(
-                    label_2D_cam_0.T[0,rand_ind].detach().numpy(),
-                    label_2D_cam_1.T[1,rand_ind].detach().numpy(),
+                    label_2D_cam_0.T[0,rand_ind].cpu().detach().numpy(),
+                    label_2D_cam_1.T[1,rand_ind].cpu().detach().numpy(),
                     s=0.5,
                     c='g',
                 )
                 plt.subplot(122)
                 plt.scatter(
-                    recon_pixels_2[0,rand_ind].detach().numpy(),
-                    recon_pixels_2[1,rand_ind].detach().numpy(),
+                    recon_pixels_2[0,rand_ind].cpu().detach().numpy(),
+                    recon_pixels_2[1,rand_ind].cpu().detach().numpy(),
                     s=0.5,
                     c='r',
                 )
                 plt.scatter(
-                    label_2D_cam_1.T[0,rand_ind].detach().numpy(),
-                    label_2D_cam_1.T[1,rand_ind].detach().numpy(),
+                    label_2D_cam_1.T[0,rand_ind].cpu().detach().numpy(),
+                    label_2D_cam_1.T[1,rand_ind].cpu().detach().numpy(),
                     s=0.5,
                     c='g',
                 )
@@ -320,6 +326,10 @@ def validate(model, val_loader, criterion):
     pairwise_dist_loss = 0.
     with torch.no_grad():
         for i, (input, label_2D, label_3D, pairwise_distance_batch) in enumerate(val_loader):
+            input = input.to(device)
+            label_2D = label_2D.to(device)
+            label_3D = label_3D.to(device)
+            pairwise_distance_batch = pairwise_distance_batch.to(device)
             output = model(input.T, label_2D.T)
             recon_3D, closest_distance, recon_pixels_1, recon_pixels_2, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2, pairwise_distance_recon = output['recon_3D'], output['closest_distance'], output['recon_pixels_1'], output['recon_pixels_2'], output['distortion_penalty_cam_0'], output['distortion_penalty_cam_1'], output['intersection_penalty_1'], output['intersection_penalty_2'], output['pairwise_distance']
             d_pairwise_distance = (pairwise_distance_recon - pairwise_distance_batch)
@@ -380,13 +390,17 @@ def validate(model, val_loader, criterion):
 
 
 #%% Visualize arena initialization
-arena.visualize(pixels_virtual_two_cams, color_labels=True)
+arena.visualize(pixels_virtual_two_cams.to(device), color_labels=True)
 #plt.savefig(f'{outputs_dir}/initialized_arena.png')
 
 
 #%% Training setup
 batch_size=1024
-rand_ind = torch.randperm(pixels_virtual_two_cams.shape[1])
+pixels_virtual_two_cams = pixels_virtual_two_cams.to(device)
+pixels_real_two_cams = pixels_real_two_cams.to(device)
+target_coordinates = target_coordinates.to(device)
+pairwise_distance = pairwise_distance.to(device)
+rand_ind = torch.randperm(pixels_virtual_two_cams.shape[1]).to(device)
 test_dataset_size = 150
 pixels_virtual_two_cams_test = pixels_virtual_two_cams[:, rand_ind[:test_dataset_size]]
 target_coordinates_test = target_coordinates[:, rand_ind[:test_dataset_size]]
@@ -410,7 +424,6 @@ val_loader = DataLoader(pixels_virtual_two_cams_val, batch_size=batch_size, shuf
 optimizer = optim.Adam(arena.parameters(), lr=1e-2
                        )
 criterion = torch.nn.MSELoss()
-device = torch.device("cpu")
 arena.to(device)
 pixels_virtual_two_cams = pixels_virtual_two_cams.to(device)
 

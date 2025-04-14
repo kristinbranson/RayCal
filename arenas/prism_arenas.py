@@ -61,7 +61,9 @@ class Arena_3D_loss(nn.Module):
         self.T = nn.Parameter(torch.tensor(T, dtype=torch.float64), requires_grad=True)
         stereo_alpha, stereo_beta, stereo_gamma = self.get_stereo_camera_angles(R)
         self.stereo_camera_angles = nn.Parameter(
-                                            torch.tensor([stereo_alpha, stereo_beta, stereo_gamma], dtype=torch.float64),
+                                            torch.tensor([stereo_alpha, stereo_beta, stereo_gamma], 
+                                                dtype=torch.float64,
+                                                device=R.device),
                                             requires_grad=True
                                             )
         
@@ -226,7 +228,8 @@ class Arena_reprojection_loss_two_cameras_prism(nn.Module):
         stereo_alpha, stereo_beta, stereo_gamma = self.get_stereo_camera_angles(R_stereo_cam)
         self.stereo_camera_angles = nn.Parameter(
                                                 torch.tensor([stereo_alpha, stereo_beta, stereo_gamma], 
-                                                             dtype=torch.float64),
+                                                    dtype=torch.float64, 
+                                                    device=R_stereo_cam.device), 
                                                 requires_grad=True
                                                 )
 
@@ -392,7 +395,8 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
     T_stereo_cam, 
     prism_distance=None,
     prism_angles=None,
-    prism_center=None):
+    prism_center=None,
+    ):
         super(Arena_reprojection_loss_two_cameras_prism_grid_distances, self).__init__()
 
         # Camera initialization      
@@ -444,7 +448,8 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
         stereo_alpha, stereo_beta, stereo_gamma = self.get_stereo_camera_angles(R_stereo_cam)
         self.stereo_camera_angles = nn.Parameter(
                                                 torch.tensor([stereo_alpha, stereo_beta, stereo_gamma], 
-                                                             dtype=torch.float64),
+                                                             dtype=torch.float64,
+                                                             device=R_stereo_cam.device),
                                                 requires_grad=True
                                                 )
 
@@ -469,7 +474,7 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
 
     def get_stereo_camera_angles(self, 
                                  R_stereo_cam):
-        axes = torch.eye(3,3).to(torch.float64)
+        axes = torch.eye(3,3).to(device=R_stereo_cam.device, dtype=torch.float64)
         axes = torch.mm(R_stereo_cam, axes)
         plane = Plane(axes=axes)
         return plane.alpha, plane.beta, plane.gamma
@@ -497,13 +502,14 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
                         prism_angles=self.prism_angles,
                         refractive_index_glass=self.refractive_index_glass,
                         )
+
         R_stereo_cam = get_rot_mat(
             self.stereo_camera_angles[0],
             self.stereo_camera_angles[1],
             self.stereo_camera_angles[2],
             )
-        R1 = torch.eye(3, 3).to(torch.float64)
-        T1 = torch.zeros(3, 1).to(torch.float64)
+        R1 = torch.eye(3, 3).to(device=pixels_virtual_two_cams.device, dtype=torch.float64)
+        T1 = torch.zeros(3, 1).to(device=pixels_virtual_two_cams.device, dtype=torch.float64)
         R2 = R_stereo_cam
         T2 = self.T_stereo_cam
         camera2 = self.get_stereo_camera(self.principal_point_pixel_cam_1,
@@ -701,8 +707,9 @@ class Arena_reprojection_loss_single_camera_prism(nn.Module):
         stereo_alpha, stereo_beta, stereo_gamma = self.get_stereo_camera_angles(R_stereo_cam)
         self.stereo_camera_angles = nn.Parameter(
                                                 torch.tensor([stereo_alpha, stereo_beta, stereo_gamma], 
-                                                             dtype=torch.float64),
-                                                requires_grad=False
+                                                    dtype=torch.float64, 
+                                                    requires_grad=False
+                                                    )
                                                 )
 
 
@@ -726,7 +733,7 @@ class Arena_reprojection_loss_single_camera_prism(nn.Module):
 
     def get_stereo_camera_angles(self, 
                                  R_stereo_cam):
-        axes = torch.eye(3,3).to(torch.float64)
+        axes = torch.eye(3,3).to(device=R_stereo_cam.device, dtype=torch.float64)
         axes = torch.mm(R_stereo_cam, axes)
         plane = Plane(axes=axes)
         return plane.alpha, plane.beta, plane.gamma
@@ -752,8 +759,8 @@ class Arena_reprojection_loss_single_camera_prism(nn.Module):
             self.stereo_camera_angles[1],
             self.stereo_camera_angles[2],
             )
-        R1 = torch.eye(3, 3).to(torch.float64)
-        T1 = torch.zeros(3, 1).to(torch.float64)
+        R1 = torch.eye(3, 3).to(device=pixels_virtual_two_cams.device, dtype=torch.float64)
+        T1 = torch.zeros(3, 1).to(device=pixels_virtual_two_cams.device, dtype=torch.float64)
         
         distorted_virtual_pixels_cam_0 = pixels_virtual_two_cams[:2,:]
         undistorted_virtual_pixels_cam_0 = self.camera1.undistort_pixels(distorted_virtual_pixels_cam_0)
