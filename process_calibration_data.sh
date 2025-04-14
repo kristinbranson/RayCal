@@ -2,6 +2,8 @@
 #!/bin/bash
 
 rootDataDir='/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/' # This is the directory where imaging data from all experiments is stored in separate folders named exp_xx
+APT_path='/groups/branson/bransonlab/aniket/APT/'
+
 # Check if a directory argument is provided
 if [ "$#" -lt 1 ]; then
 	echo "Usage: $0 <experiment_id (int)>"
@@ -128,7 +130,9 @@ echo "Exporting prism initialization"
 
 echo "Training calibration model using pytorch-based ray-tracing"
 
-export PYTHONPATH="/groups/branson/bransonlab/aniket/APT/deepnet/"
+export PYTHONPATH="$APT_path/deepnet/"
+
+
 find "$flyDircam0" -maxdepth 1 -type f -name "image_*" | while IFS= read -r file; do
     echo "Processing file: $file"
     python /groups/branson/bransonlab/aniket/APT/deepnet/crop_ufmf.py $file --croprows "[[0,-1],[0,-1]]" --cropcols "[[0,$dividing_col],[$dividing_col,-1]]" --outdir $flyDircam0Cropped/ --rot90 1
