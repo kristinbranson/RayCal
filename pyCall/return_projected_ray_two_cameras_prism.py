@@ -8,8 +8,16 @@ from matplotlib.widgets import Cursor
 import openpyxl
 import sys
 from ray_tracing_simulator_nnModules_grad import get_rot_mat
+import yaml
 
 #%%
+print('Reading from config file')
+config_path = 'config.yaml'
+with open(config_path, 'r') as f:
+    data = yaml.safe_load(f)
+
+dividing_col = config['dividing_column'] # Read dividing path from a yaml path
+rotmat = config['rotmat']
 
 print(f'Loading model from: {PATH}')
 checkpoint = torch.load(PATH, weights_only=True)
@@ -164,17 +172,21 @@ def get_secondary_camera(arena):
                                 r1=arena.stereocam_r1,
                                 radial_dist_coeffs=arena.radial_dist_coeffs_cam_1)
     
-
 if not(type(user_annotation) == torch.Tensor):
     user_annotation = torch.tensor(user_annotation).to(torch.float64)[:, None]
 
+if rotmat:
+    theta = torch.pi / 2
+    R_theta = torch.tensor([[torch.cos(-theta), -torch.sin(-theta)], [torch.sin(-theta), torch.cos(-theta)]]).to(torch.float64)
+    user_annotation = R_theta @ user_annotation
 
 if "virtual" in cam_label:
-    print("Asda")
     epipolar_line_unlabelled, epipolar_line_labelled = get_epipolar_line(arena, user_annotation, cam_label)
     epipolar_line_unlabelled = epipolar_line_unlabelled.numpy()
     epipolar_line_labelled = epipolar_line_labelled.numpy()
+
 elif "real" in cam_label:
+    user_annotation[:, 0] += dividing_column
     epipolar_line_unlabelled = get_epipolar_line(arena, user_annotation, cam_label)
     epipolar_line_unlabelled = epipolar_line_unlabelled.numpy()
     epipolar_line_labelled = np.array([])
