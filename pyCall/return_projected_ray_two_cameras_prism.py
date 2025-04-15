@@ -1,16 +1,23 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from arenasEfficient import Arena_reprojection_loss_two_cameras_prism_grid_distances
+#from arenasEfficient import Arena_reprojection_loss_two_cameras_prism_grid_distances
 import scipy.io as sio
 import os
 from matplotlib.widgets import Cursor
 import openpyxl
 import sys
+#from ray_tracing_simulator_nnModules_grad import get_rot_mat
+# Specify the directory where your libraries are located
+library_directory = '/groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/refraction_model/calprism/'
+
+# Add the directory for arenas to sys.path
+sys.path.append(library_directory)
+from arenas.prism_arenas import Arena_reprojection_loss_two_cameras_prism_grid_distances
 from ray_tracing_simulator_nnModules_grad import get_rot_mat
 
+print('File modified')
 #%%
-
 print(f'Loading model from: {PATH}')
 checkpoint = torch.load(PATH, weights_only=True)
 arena = Arena_reprojection_loss_two_cameras_prism_grid_distances(
@@ -126,7 +133,6 @@ def get_epipolar_line(arena, user_annotation,
             annotations_curve_labelled_camera = labelled_camera.distort_pixels_classical(
                                                                 annotations_curve_labelled_camera,
                                                                 cam_labelled_dist_coeff)
-            print(annotations_curve_labelled_camera[:,0])
             return annotations_curve_unlabelled_camera, annotations_curve_labelled_camera
     
 
@@ -164,13 +170,11 @@ def get_secondary_camera(arena):
                                 r1=arena.stereocam_r1,
                                 radial_dist_coeffs=arena.radial_dist_coeffs_cam_1)
     
-
 if not(type(user_annotation) == torch.Tensor):
     user_annotation = torch.tensor(user_annotation).to(torch.float64)[:, None]
 
 
 if "virtual" in cam_label:
-    print("Asda")
     epipolar_line_unlabelled, epipolar_line_labelled = get_epipolar_line(arena, user_annotation, cam_label)
     epipolar_line_unlabelled = epipolar_line_unlabelled.numpy()
     epipolar_line_labelled = epipolar_line_labelled.numpy()
