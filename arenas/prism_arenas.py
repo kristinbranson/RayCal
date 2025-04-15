@@ -397,22 +397,22 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
 
         # Camera initialization      
         principal_point_pixel_cam_0 = nn.Parameter(
-            torch.tensor(principal_point_pixel_cam_0, dtype=torch.float64).reshape(2,1),
+            principal_point_pixel_cam_0.reshape(2,1),
             requires_grad=True,
         )  
 
         principal_point_pixel_cam_1 = nn.Parameter(
-            torch.tensor(principal_point_pixel_cam_1, dtype=torch.float64).reshape(2,1),
+            principal_point_pixel_cam_1.reshape(2,1),
             requires_grad=True,
         )  
 
         focal_length_cam_0 = nn.Parameter(
-            torch.tensor(focal_length_cam_0, dtype=torch.float64),
+            focal_length_cam_0,
             requires_grad=True,
         )
 
         focal_length_cam_1 = nn.Parameter(
-            torch.tensor(focal_length_cam_1, dtype=torch.float64),
+            focal_length_cam_1,
             requires_grad=True,
         )
 
@@ -648,22 +648,22 @@ class Arena_reprojection_loss_single_camera_prism(nn.Module):
 
         # Camera initialization      
         principal_point_pixel_cam_0 = nn.Parameter(
-            torch.tensor(principal_point_pixel_cam_0, dtype=torch.float64).reshape(2,1),
+            principal_point_pixel_cam_0.reshape(2,1),
             requires_grad=True,
         )  
 
         principal_point_pixel_cam_1 = nn.Parameter(
-            torch.tensor(principal_point_pixel_cam_1, dtype=torch.float64).reshape(2,1),
+            principal_point_pixel_cam_1.reshape(2,1),
             requires_grad=False,
         )  
 
         focal_length_cam_0 = nn.Parameter(
-            torch.tensor(focal_length_cam_0, dtype=torch.float64),
+            focal_length_cam_0,
             requires_grad=True,
         )
 
         focal_length_cam_1 = nn.Parameter(
-            torch.tensor(focal_length_cam_1, dtype=torch.float64),
+            focal_length_cam_1,
             requires_grad=False,
         )
 
