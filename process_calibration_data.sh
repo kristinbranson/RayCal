@@ -3,6 +3,7 @@
 
 rootDataDir='/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/' # This is the directory where imaging data from all experiments is stored in separate folders named exp_xx
 APT_path='/groups/branson/bransonlab/aniket/APT/'
+PTR_dir='/groups/branson/bransonlab/PTR_fly_annotations_3D/'
 
 # Check if a directory argument is provided
 if [ "$#" -lt 1 ]; then
@@ -108,10 +109,17 @@ fi
 #Annotating dividing column
 /misc/local/matlab-2023b/bin/matlab -r "exp_id = $1; dataDir = '$rootDataDir'; run('matlab_scripts/runme_annotate_dividing_column.m'); exit()"
 echo "Exported dividing columns"
-calibration_grid_folder="$rootDataDir/exp_$1/calibration_grid_images/logfile.txt"
-echo $calibration_grid_folder
-dividing_col=$(cat $calibration_grid_folder)
+cal_grid_log_path="$rootDataDir/exp_$1/calibration_grid_images/logfile.txt"
+echo "Temporary saving log data for the two camera images in $cal_grid_log_path"
+mapfile -t log < $cal_grid_log_path
+dividing_col=(${log[@]:0:2})
+image_width=(${log[@]: -2})
 
+# Print the integers
+echo "Dividing column for the first image: ${dividing_col[0]}"
+echo "Image width for the first image: ${image_width[0]}"
+echo "Dividing column for the second image: ${dividing_col[1]}"
+echo "Image width for the second image: ${image_width[1]}"
 
 echo "Detecting and saving dotted grids from cam_0 and cam_1. These will be used for estimating camera intrinsics"
 #/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; dataDir = '$rootDataDir'; run('matlab_scripts/runme_annotate_circular_grid_points_automated.m')"
@@ -120,30 +128,64 @@ echo "Calibrating camera intrinsics and saving them"
 #/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; dataDir = '$rootDataDir'; run('matlab_scripts/runme_calibrate_grid_automated.m')"
 
 echo "Detecting and saving dotted grids from cam_02 and cam_13"
-#/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; dividing_col = $dividing_col;  dataDir = '$rootDataDir'; run('matlab_scripts/runme_annotate_grid_prism.m')"
+#/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; dividing_col = [${dividing_col[0]}, ${dividing_col[1]};  dataDir = '$rootDataDir'; run('matlab_scripts/runme_annotate_grid_prism.m')"
 
 echo "Exporting grid coordinates in a format ready for calibration"
 #/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; dataDir = '$rootDataDir'; run('matlab_scripts/runme_export_data_two_cams.m')"
 
 echo "Exporting prism initialization"
-#/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; dividing_col = $dividing_col; dataDir = '$rootDataDir'; run('matlab_scripts/runme_annotate_prism_initialization_image.m')"
+#/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; dividing_col = [${dividing_col[0]}, ${dividing_col[1]}] ; dataDir = '$rootDataDir'; run('matlab_scripts/runme_annotate_prism_initialization_image.m')"
 
 echo "Training calibration model using pytorch-based ray-tracing"
 
 export PYTHONPATH="$APT_path/deepnet/"
 
-
 find "$flyDircam0" -maxdepth 1 -type f -name "image_*" | while IFS= read -r file; do
     echo "Processing file: $file"
-    python /groups/branson/bransonlab/aniket/APT/deepnet/crop_ufmf.py $file --croprows "[[0,-1],[0,-1]]" --cropcols "[[0,$dividing_col],[$dividing_col,-1]]" --outdir $flyDircam0Cropped/ --rot90 1
+    echo "crop cols: [[0,$[dividing_col[0]-1]],[${dividing_col[0]},-1]]"
+    python /groups/branson/bransonlab/aniket/APT/deepnet/crop_ufmf.py $file --croprows "[[0,-1],[0,-1]]" --cropcols "[[0,$[dividing_col[0]-1]],[${dividing_col[0]},-1]]" --outdir $flyDircam0Cropped/ --rot90 1
 done
 
 find "$flyDircam1" -maxdepth 1 -type f -name "image_*" | while IFS= read -r file; do
     echo "Processing file: $file"
-    python /groups/branson/bransonlab/aniket/APT/deepnet/crop_ufmf.py $file --croprows "[[0,-1],[0,-1]]" --cropcols "[[0,$dividing_col],[$dividing_col,-1]]" --outdir $flyDircam1Cropped/ --rot90 1
+    echo "crop cols: [[0,$[dividing_col[1]-1]],[${dividing_col[1]},-1]]"
+    python /groups/branson/bransonlab/aniket/APT/deepnet/crop_ufmf.py $file --croprows "[[0,-1],[0,-1]]" --cropcols "[[0,$[dividing_col[1]-1]],[${dividing_col[1]},-1]]" --outdir $flyDircam1Cropped/ --rot90 1
 done
 
 
-python /groups/branson/bransonlab/aniket/APT/deepnet/crop_ufmf.py  --croprows "[[0,-1],[0,-1]]" --cropcols "[[0,$dividing_col],[$dividing_col,-1]]" --outdir ../data/flyprism/cropped/cam_0/ --rot90 1
+#python /groups/branson/bransonlab/aniket/APT/deepnet/crop_ufmf.py  --croprows "[[0,-1],[0,-1]]" --cropcols "[[0,$[dividing_col-1]],[$dividing_col,-1]]" --outdir ../data/flyprism/cropped/cam_0/ --rot90 1
+
+
+yaml_file="temp.yaml"
+
+# Write to a temporary YAML file 'temp.yaml'
+echo "dividing_col: [${dividing_col[0]}, ${dividing_col[1]}]" > "$yaml_file"
+echo "image_width: [${image_width[0]}, ${image_width[1]}]">> "$yaml_file"
+echo "python_script: '/groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/refraction_model/calprism/pyCall/return_projected_ray_two_cameras_prism.py'" >> "$yaml_file"
 
 python runme_train_simulator_camera_prism_grid_distances.py --exp_id $1
+
+#read -r dividing_col image_width python_script_path model_path<<< $(python - <<EOF
+eval "$(python - <<END
+
+import yaml
+
+import yaml
+
+with open("$yaml_file", 'r') as file:
+    data = yaml.safe_load(file)
+
+print('dividing_col=(' + ' '.join(map(str, dividing_col)) + ')')
+print('image_width=(' + ' '.join(map(str, image_width)) + ')')
+python_script_path=data['python_script']
+model_path=data['model_path']
+print(f"{dividing_col} {image_width} {python_script_path} {model_path}")
+EOF
+)"
+
+mkdir "$APT_path/calibration_data"
+/misc/local/matlab-2023b/bin/matlab -batch "calibrations = []; dividing_col=[${dividing_col[0]}, ${dividing_col[1]}]; image_width=[${image_width[0]}, ${image_width[1]}]; model_path='$model_path'; nviews=4; python_script_path='$python_script_path'; raytracing=1; save(['$APT_path', '/calibration_data/exp_$1_calibration_data.mat']); exit;"
+cp $APT_path/calibration_data/exp_$1_calibration_data.mat $PTR_dir/exp$1/
+cp $model_path $PTR_dir/exp$1/
+
+
