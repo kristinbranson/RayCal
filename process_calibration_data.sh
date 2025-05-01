@@ -122,19 +122,19 @@ echo "Dividing column for the second image: ${dividing_col[1]}"
 echo "Image width for the second image: ${image_width[1]}"
 
 echo "Detecting and saving dotted grids from cam_0 and cam_1. These will be used for estimating camera intrinsics"
-#/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; dataDir = '$rootDataDir'; run('matlab_scripts/runme_annotate_circular_grid_points_automated.m')"
+/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; dataDir = '$rootDataDir'; run('matlab_scripts/runme_annotate_circular_grid_points_automated.m')"
 
 echo "Calibrating camera intrinsics and saving them"
-#/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; dataDir = '$rootDataDir'; run('matlab_scripts/runme_calibrate_grid_automated.m')"
+/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; dataDir = '$rootDataDir'; run('matlab_scripts/runme_calibrate_grid_automated.m')"
 
 echo "Detecting and saving dotted grids from cam_02 and cam_13"
-#/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; dividing_col = [${dividing_col[0]}, ${dividing_col[1]};  dataDir = '$rootDataDir'; run('matlab_scripts/runme_annotate_grid_prism.m')"
+/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; dividing_col = [${dividing_col[0]}, ${dividing_col[1]}];  dataDir = '$rootDataDir'; run('matlab_scripts/runme_annotate_grid_prism.m')"
 
 echo "Exporting grid coordinates in a format ready for calibration"
-#/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; dataDir = '$rootDataDir'; run('matlab_scripts/runme_export_data_two_cams.m')"
+/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; dataDir = '$rootDataDir'; run('matlab_scripts/runme_export_data_two_cams.m')"
 
 echo "Exporting prism initialization"
-#/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; dividing_col = [${dividing_col[0]}, ${dividing_col[1]}] ; dataDir = '$rootDataDir'; run('matlab_scripts/runme_annotate_prism_initialization_image.m')"
+/misc/local/matlab-2023b/bin/matlab -batch "exp_id = $1; dividing_col = [${dividing_col[0]}, ${dividing_col[1]}] ; dataDir = '$rootDataDir'; run('matlab_scripts/runme_annotate_prism_initialization_image.m')"
 
 echo "Training calibration model using pytorch-based ray-tracing"
 
@@ -180,12 +180,15 @@ print('image_width=(' + ' '.join(map(str, image_width)) + ')')
 python_script_path=data['python_script']
 model_path=data['model_path']
 print(f"{dividing_col} {image_width} {python_script_path} {model_path}")
-EOF
+END
 )"
 
+
 mkdir "$APT_path/calibration_data"
-/misc/local/matlab-2023b/bin/matlab -batch "calibrations = []; dividing_col=[${dividing_col[0]}, ${dividing_col[1]}]; image_width=[${image_width[0]}, ${image_width[1]}]; model_path='$model_path'; nviews=4; python_script_path='$python_script_path'; raytracing=1; save(['$APT_path', '/calibration_data/exp_$1_calibration_data.mat']); exit;"
+mkdir "$PTR_dir/exp_$1/movies"
+/misc/local/matlab-2023b/bin/matlab -batch "calibrations = []; dividing_col=[${dividing_col[0]}, ${dividing_col[1]}]; image_width=[${image_width[0]}, ${image_width[1]}]; model_path='$PTR_dir/exp$1/$model_file_name';'; nviews=4; python_script_path='$python_script_path'; raytracing=1; save(['$APT_path', '/calibration_data/exp_$1_calibration_data.mat']); exit;"
 cp $APT_path/calibration_data/exp_$1_calibration_data.mat $PTR_dir/exp$1/
 cp $model_path $PTR_dir/exp$1/
-
-
+cp $flyDircam0Cropped/*.ufmf $PTR_dir/exp_$1/movies
+cp $flyDircam1Cropped/*.ufmf $PTR_dir/exp_$1/movies
+cp $model_path $PTR_dir/exp$1/
