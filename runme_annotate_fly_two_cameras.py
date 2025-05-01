@@ -3,17 +3,17 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from arenasEfficient import Arena_reprojection_loss_two_cameras_prism_grid_distances
+from arenas.prism_arenas import Arena_reprojection_loss_two_cameras_prism_grid_distances
 import scipy.io as sio
 import os
 from matplotlib.widgets import Cursor
 import openpyxl
 from ray_tracing_simulator_nnModules_grad import get_rot_mat
 from skimage import exposure
-
+import tensorboard
 #%%
 # Load  data
-model_checkpoint_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/refraction_model/calprism/outputs/model_checkpoints/exp_20_2025_2_11_17_51_27'
+model_checkpoint_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/refraction_model/calprism/outputs/model_checkpoints/exp_16_2025_1_11_13_11_12'
 PATH = f'{model_checkpoint_dir}/best_checkpoint.pth'
 checkpoint = torch.load(PATH, weights_only=True)
 arena = Arena_reprojection_loss_two_cameras_prism_grid_distances(
@@ -28,7 +28,7 @@ arena = Arena_reprojection_loss_two_cameras_prism_grid_distances(
             )
 
 arena.load_state_dict(checkpoint['model_state_dict'])
-experiment_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/exp_20/fly_images/'
+experiment_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/exp_16/fly_images/'
 images_dir = experiment_dir # NOTE: This is being done slightly differently compared with the single camera case
 
 # %% Click event
@@ -211,14 +211,13 @@ def get_user_annotations(arena, image_folder, keypoints_dict, first_frame=0, exc
 
         img_primary = plt.imread(image_path_primary)
         img_secondary = plt.imread(image_path_secondary)
+        print(img_primary.shape)
         img = np.hstack((img_primary,
                         img_secondary))
         img = exposure.equalize_adapthist(img, clip_limit=0.02)
         im_primary_width = img_primary.shape[1]
         plt.close('all')
         fig, ax = plt.subplots(figsize=(90, 30))
-        real_annotation_frame = torch.zeros(4).to(torch.float64)
-        virtual_annotation_frame = torch.zeros_like(real_annotation_frame).squeeze()
         for kpt_id in range(num_keypoints):
             # Show the image
             # Create a new figure and axis 
@@ -234,7 +233,6 @@ def get_user_annotations(arena, image_folder, keypoints_dict, first_frame=0, exc
             scat1 = None
             scat2 = None
             ax.set_title(f"Click on the virtual image: {image_file_primary} in primary camera to annotate {keypoints_dict[kpt_id]}, {kpt_id+1} of {num_keypoints} keypoints")
-            #print(f"Click on the virtual image: {image_file_primary} in primary camera to annotate {keypoints_dict[kpt_id]}, {kpt_id+1} of {num_keypoints} keypoints")
             plt.show()
             len_coor = 0
             #NOTE: While loop for annotation of the primary camera

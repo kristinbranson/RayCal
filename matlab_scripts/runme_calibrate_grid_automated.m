@@ -1,4 +1,5 @@
-exp_root_folder = '../prism_new_led';
+% dataDir = '../prism_new_led';
+exp_root_folder = dataDir; 
 % exp_id = 24;
 calibrate_all_cameras = false;
 grid_type = 'dot'; % square or dot
