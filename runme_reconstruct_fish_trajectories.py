@@ -1,12 +1,18 @@
 import torch
-from arenasEfficient import Arena_fish_tank_pairwise_distances
+from arenas.fish_tank_arenas import Arena_fish_tank_pairwise_distances
 import pickle
 import os
 import matplotlib.pyplot as plt
 import numpy as np
 import cv2 as cv
 import matplotlib.animation as animation
+from matplotlib.animation import FFMpegWriter
+from skimage import measure
 import matplotlib.gridspec as gridspec
+import pdb
+import matplotlib.cm as cm
+from mpl_toolkits.mplot3d.art3d import Line3DCollection
+from matplotlib.collections import LineCollection
 
 annotations_file_path = f'/groups/branson/bransonlab/aniket/camera_alignment/annotations.pkl'
 annotations_file_path_side = f'/groups/branson/bransonlab/aniket/camera_alignment/calibration_data_initializations/sam2/cam_0_jpg_pi_754-880_mask.npz'
@@ -15,18 +21,25 @@ im_files_path_side = f'/groups/branson/bransonlab/aniket/camera_alignment/calibr
 im_files_path_top = f'/groups/branson/bransonlab/aniket/camera_alignment/calibration_data_initializations/fish_videos/cam_1'
 output_video_path = f'/groups/branson/bransonlab/aniket/camera_alignment/calibration_data_initializations/fish_videos/reconstruction_video'
 save_video = True
-frame_rate = 30
+frame_rate = 30 # Hz
 
 num_frames = len(os.listdir(im_files_path_side))
+
 try:
     len(os.listdir(im_files_path_top)) == num_frames
 except:
     raise ValueError('Number of frames in top and side camera videos do not match')
 
 
-im_files_side = [os.path.join(im_files_path_side, f'image_{frame_id}.png') for frame_id in range(1, num_frames)]
-im_files_top = [os.path.join(im_files_path_top, f'image_{frame_id}.png') for frame_id in range(1, num_frames)]
+#im_files_side = [os.path.join(im_files_path_side, f'image_{frame_id}.png') for frame_id in range(1, num_frames)]
+#im_files_top = [os.path.join(im_files_path_top, f'image_{frame_id}.png') for frame_id in range(1, num_frames)]
+im_files_side = [os.path.join(im_files_path_side, filename) for filename in os.listdir(im_files_path_side)]
+im_files_top = [os.path.join(im_files_path_top, filename) for filename in os.listdir(im_files_path_top)]
 
+# Define colors for the trajectory plot
+values = np.linspace(0, 1, num_frames)
+viridis_cmap = cm.get_cmap('viridis')
+colors = viridis_cmap(values)
 
 def draw_axes(image, center_x, center_y, length, color, axis1_name, axis2_name):
     font = cv.FONT_HERSHEY_SIMPLEX
@@ -42,11 +55,47 @@ def draw_axes(image, center_x, center_y, length, color, axis1_name, axis2_name):
     cv.arrowedLine(image, (center_x + length - arrow_length, center_y), (center_x + length, center_y), color, 2, tipLength=0.5)
     cv.arrowedLine(image, (center_x, center_y - length + arrow_length), (center_x, center_y - length), color, 2, tipLength=0.5)
     cv.putText(image, axis1_name, (center_x + length + length // 8, center_y + length // 6), font, font_scale, color, font_thickness, cv.LINE_AA)
-
     # Label for Y-axis
     cv.putText(image, axis2_name, (center_x - length // 2 - (length // 4) * (len(axis2_name) - 1), center_y - length + length // 4), font, font_scale, color, font_thickness, cv.LINE_AA)
     return image
 
+
+def get_rotated_fish(im, heading, centroid, imageSize, axes_len, resize_factor):
+    """
+    Get the rotated fish image
+    Crop the image around the centroid to the given size imageSize
+    im: (numpy array) Fish image
+    heading: (float) Fish heading in radians
+    centroid: (tuple) Centroid of the fish in pixels
+    imageSize: (tuple) Size of the fish image
+    """
+    width, height = imageSize
+    width, height = width * 2, height * 2
+    crop_coor = [centroid[0] - width // 2, centroid[1] - height // 2, 
+                 centroid[0] + width // 2, centroid[1] + height // 2]
+    crop_coor = [round(int(coor)) for coor in crop_coor]
+    im_crop = im[crop_coor[1]:crop_coor[3], crop_coor[0]:crop_coor[2]]
+    # Convert image to np float for rotation
+    im_crop = im_crop.astype(np.float32)
+
+    # Rotate the image
+    M = cv.getRotationMatrix2D((width // 2, height // 2), heading * 180 / np.pi, 1)
+    im_rotated = cv.warpAffine(im_crop, M, (width, height))
+    cy, cx = im_rotated.shape[0] // 2, im_rotated.shape[1] // 2
+    #width, height = axes_len[0] * 2, int(axes_len[1] * 1.5)
+    width, height = 30 * 2, int(70 * 1.5)
+    im_rotated = np.repeat(im_rotated[:, :, np.newaxis], 3, axis=2)
+    im_rotated = im_rotated[cy - height // 2: cy + height // 2, cx - width // 2: cx + width // 2, :]    
+
+    # Get the rotated fish image
+    dim = (int(width * resize_factor), int(height * resize_factor))
+    im_rotated = cv.resize(im_rotated, dim, interpolation=cv.INTER_AREA)    
+    im_rotated[0:2, :, 0] = 255
+    im_rotated[-3:-1, :, 0] = 255
+    im_rotated[:, 0:2, 0] = 255
+    im_rotated[:, -3:-1, 0] = 255
+    return im_rotated
+ 
 
 def get_plot_limits(recon_3D, zoom_factor=1):
     """
@@ -97,6 +146,7 @@ def get_annotations_from_pkl(annotations_file_path):
 
 
 def get_annotations_from_sam_npz(annotations_file_path, cam='side'):
+    masks = []
     ann = np.load(annotations_file_path)
     num_frames = sum(1 for key in ann if key.startswith('frame_'))
     C_tensor = torch.zeros(2, num_frames).to(torch.float64)
@@ -107,25 +157,68 @@ def get_annotations_from_sam_npz(annotations_file_path, cam='side'):
         mask_xy = np.argwhere(seg_frame == 1)
         cent = torch.tensor(mask_xy.mean(axis=0))
         C_tensor[:, frame_id] = torch.flip(cent, [0])
-    return C_tensor
+        masks.append(seg_frame)
+    return C_tensor, masks
+
+
+def get_fish_heading(masks):
+    """
+    Get the headings of the fish from the masks in radians
+    masks: list of 2D numpy arrays (binary masks)
+    headings: list of floats (radians)
+    """
+    headings = []
+    axes_lens = [] # Major and minor axis lengths of fish bounding box
+    for mask in masks:
+        label_img = measure.label(mask)
+        # Measure properties
+        regions = measure.regionprops(label_img)
+        # Assume 1 object (since masks are obtained from SAM and preprocessed by Akihiro)
+        region = regions[0]
+        # Now you can get:
+        major_axis_length = int(region.major_axis_length)
+        minor_axis_length = int(region.minor_axis_length)
+        axes_lens.append([minor_axis_length, major_axis_length])
+        headings.append(region.orientation)
+    return headings, axes_lens
+
+
+def get_heading_vector(centroid, heading, length):
+    """
+    Get the heading vector from the centroid and heading
+    centroid: (x, y) coordinates of the centroid
+    heading: angle in radians
+    """
+    x = centroid[0] + 0.5 * length * np.sin(heading)
+    y = centroid[1] + 0.5 * length * np.cos(heading)
+    return x, y
 
 
 fig = plt.figure(figsize=(40, 18))
 gs = gridspec.GridSpec(1, 2, width_ratios=[1.5, 1])  # Equal width for both columns
 ax1 = fig.add_subplot(gs[0, 0], projection='3d')  # Larger subplot spanning both columns
 ax2 = fig.add_subplot(gs[0, 1])  # Smaller subplot on the left
-C_side = get_annotations_from_sam_npz(annotations_file_path_side, 'side')
-C_top = get_annotations_from_sam_npz(annotations_file_path_top, 'top')
+C_side, mask_side = get_annotations_from_sam_npz(annotations_file_path_side, 'side')
+C_top, mask_top = get_annotations_from_sam_npz(annotations_file_path_top, 'top')
+headings_top, axes_lens = get_fish_heading(mask_top)
 #C_side, C_top = get_annotations_from_pkl(annotations_file_path)
 
 def update(frame_id):
     ax1.cla()
     pad = 50 # padding between plot of top camera image and side camera image
+    # Plot the 3D reconstruction
+    points = np.array(recon_3D[:, :frame_id+1]).T.reshape(-1, 1, 3)
+    segments = np.concatenate([points[:-1], points[1:]], axis=1)
+    lc = Line3DCollection(segments,
+            color=colors[:frame_id+1, :])
+    """
     ax1.plot(recon_3D[0, :frame_id+1],
             recon_3D[1, :frame_id+1],
-            recon_3D[2, :frame_id+1],   
-            color='tab:blue')
-
+            recon_3D[2, :frame_id+1],
+            color=colors[:frame_id+1, :])
+            #color='tab:blue')
+    """
+    ax1.add_collection3d(lc)    
     ax1.scatter(recon_3D[0, frame_id],
             recon_3D[1, frame_id],
             recon_3D[2, frame_id],   
@@ -164,6 +257,8 @@ def update(frame_id):
     ax1.set_zlabel('Z (mm)', fontsize=22, labelpad=17)
     ax1.set_title(f'3-D reconstruction', fontsize=28, pad=1)
     ax1.view_init(elev=-15., azim=210., roll=180.)    
+
+    
     im_side = plt.imread(im_files_side[frame_id])[:,:,:3][::-1, ::-1]
     im_side = im_side / im_side.max() * 255
     im_side = im_side.astype(np.uint8)
@@ -171,20 +266,67 @@ def update(frame_id):
     im_top = im_top / im_top.max() * 255
     im_top = im_top.astype(np.uint8)
     im_side = draw_axes(im_side, center_x=150, center_y=150, length=100, color=(255,255,255), axis1_name='Y', axis2_name='Z')
-    im_top = draw_axes(im_top, center_x=150, center_y=150, length=100, color=(255,255,255), axis1_name='X', axis2_name='-Y')
-
-    im = np.concatenate((im_top, 255 * np.ones((50, im_side.shape[1], im_side.shape[2]), np.uint8), im_side), axis=0)
+    im_top = draw_axes(im_top, center_x=150, center_y=150, length=100, color=(255,255,255), axis1_name='X', axis2_name='-Y')        
+    
+    # Plot the raw images and overlay cropped, rotated images    
+    heading_top = headings_top[frame_id]
+    axes_len = axes_lens[frame_id]
+    centroid_top = C_top[:, frame_id]
+    heading_vector_top = get_heading_vector(centroid_top, heading_top, length=100)
+    fov_size = 200
+    rot_im = get_rotated_fish(im_top[:,:,0], -headings_top[frame_id], C_top[:,frame_id], [fov_size, fov_size], axes_len, resize_factor=8)
+    
+    im_top[im_top.shape[0] - rot_im.shape[0]:im_top.shape[0],
+              im_top.shape[1] - rot_im.shape[1]:im_top.shape[1], :] = rot_im
+    im = np.concatenate((im_top, 255 * np.ones((50, im_side.shape[1], im_side.shape[2]), np.uint8), im_side), axis=0)    
     font = cv.FONT_HERSHEY_SIMPLEX    
     font_thickness = 3
     ax2.cla()
-    cv.putText(im, f'Time: {1 / frame_rate * (frame_id-1):.2f} ms', (650, 100), font, 3, (255,255,255), font_thickness, cv.LINE_AA)
+    cv.putText(im, f'Time: {1000 / frame_rate * (frame_id-1):.2f} ms', (650, 100), font, 3, (255,255,255), font_thickness, cv.LINE_AA)
     ax2.imshow(im, cmap='gray')
+    """
+    ax2.plot([centroid_top[0], heading_vector_top[0]], 
+             [centroid_top[1], heading_vector_top[1]], 
+             color='tab:blue', linewidth=1)
+    """
+    
+    
+    points_top = np.array(C_top[:, :frame_id+1]).T.reshape(-1, 1, 2)
+    segments = np.concatenate([points_top[:-1], points_top[1:]], axis=1)
+    lc = LineCollection(segments, colors=colors[:frame_id+1, :], linewidth=1.4)
+    ax2.add_collection(lc)
+
+    """
+    ax2.plot(C_top[0, :frame_id], 
+                (C_top[1, :frame_id]), 
+                linewidth=1.5, 
+                color=colors[:frame_id+1, :])
+                #color='tab:blue') 
+    """
+    C_side_transformed = np.zeros_like(C_side)
+    C_side_transformed[0, :] = im_side.shape[1] - C_side[0,:]
+    C_side_transformed[1, :] = im_side.shape[0] - (C_side[1, :]) + pad + im_top.shape[0]
+
+    points_side = np.array(C_side_transformed[:, :frame_id+1]).T.reshape(-1, 1, 2)
+    segments = np.concatenate([points_side[:-1], points_side[1:]], axis=1)
+    lc = LineCollection(segments, colors=colors[:frame_id+1, :], linewidth=1.4)
+    ax2.add_collection(lc)
+
+    # Plot the centroid of the fish
     ax2.scatter(C_top[0, frame_id], 
                 (C_top[1, frame_id]), 
-                s=20, color='tab:red') 
+                s=15, color='tab:red') 
     ax2.scatter(im_side.shape[1] - C_side[0, frame_id], 
                 im_side.shape[0] - (C_side[1, frame_id]) + pad + im_top.shape[0], 
-                s=20, color='tab:red')
+                s=15, color='tab:red')
+    
+    """
+    ax2.plot(im_side.shape[1] - C_side[0, :frame_id], 
+                im_side.shape[0] - (C_side[1, :frame_id]) + pad + im_top.shape[0], 
+                linewidth=1.5, 
+                color=colors[:frame_id+1, :])
+                #color='tab:blue')
+    """
     ax2.set_xticks([])
     ax2.set_yticks([])
     
@@ -234,4 +376,8 @@ if save_video:
         interval=100, repeat=False,
         )
     # Save the animation as a video file
-    ani.save(f'{output_video_path}.mp4', writer='ffmpeg', fps=6)
+    writer = FFMpegWriter(fps=6, codec='mpeg4', bitrate=1800)
+
+    # Save as MP4    
+    #ani.save(f'{output_video_path}.mp4', writer='ffmpeg', fps=6)
+    ani.save(f'{output_video_path}.mp4', writer=writer, dpi=100)

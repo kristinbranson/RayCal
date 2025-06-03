@@ -82,6 +82,40 @@ def rotz(angle):
 def get_rot_mat(alpha, beta, gamma):
         return torch.mm(torch.mm(rotz(gamma), roty(beta)), rotx(alpha)) # Rotation matrix
 
+def closest_distance_from_point(point, ray):
+    """
+    Compute distances from a point to a set of lines.
+
+    Args:
+        origins (torch.Tensor): shape (3, num_rays), the origins of the lines.
+        directions (torch.Tensor): shape (3, num_rays), the direction vectors of the lines.
+        point (torch.Tensor): shape (3, 1), the point from which distances are measured.
+
+    Returns:
+        torch.Tensor: shape (num_rays,), distances from the point to each line.
+    """
+    # TODO: Handle dimension mismatch
+    # Ensure directions are normalized
+    origins = ray.origin
+    directions = ray.direction
+    directions = directions / directions.norm(dim=0, keepdim=True)
+
+    # Vector from line origins to the point
+    vec_to_point = point - origins  # shape: (3, num_rays)
+
+    # Projection of vec_to_point onto directions
+    proj_lengths = torch.sum(vec_to_point * directions, dim=0, keepdim=True)  # shape: (1, num_rays)
+    projections = proj_lengths * directions  # shape: (3, num_rays)
+
+    # Perpendicular vectors from point to lines
+    perp_vectors = vec_to_point - projections  # shape: (3, num_rays)
+
+    # Distances are the norms of the perpendicular vectors
+    distances = perp_vectors.norm(dim=0)  # shape: (num_rays,)
+
+    return distances
+
+
 
 # %%Ray class (for a ray of light)
 class Ray():
@@ -385,6 +419,7 @@ class Plane(nn.Module):
         good_rays_mask = torch.linalg.vector_norm(ray.direction, dim=0) > 1e-1
         ray_t = torch.zeros_like(ray.t)
         ray_t[good_rays_mask,:] = torch.mm((self.center - ray.origin[:, good_rays_mask]).T, self.axes[:,0].unsqueeze(-1)) / torch.mm(ray.direction[:, good_rays_mask].T, self.axes[:,0].unsqueeze(-1))
+        ray_t[~good_rays_mask,:] = torch.nan 
         ray.t = ray_t.clone().detach()
         intersection = ray.origin + ray_t.t() * ray.direction
         # Check if the ray intersects the plane
@@ -949,6 +984,7 @@ class EfficientCamera(Plane, nn.Module):
         tolerance = 1e-14
         pixels_distorted = self.normalize_pixels(pixels_distorted)
         pixels_undistorted = pixels_distorted.clone()
+        nan_mask = ~torch.isnan(pixels_distorted)
         success = False
         for i in range(max_iterations):
             # Calculate the radial distance squared
@@ -958,9 +994,9 @@ class EfficientCamera(Plane, nn.Module):
             radial_distortion = 1 + distortion_params_[0] * r2 + distortion_params_[1] * r4
             # Update undistorted coordinates
             pixels_undistorted_new = pixels_distorted / radial_distortion
-            # Check for convergence
-            if torch.max(torch.abs(pixels_undistorted_new - pixels_undistorted)) < tolerance:
-                #print(f'Converged at iteration {i}')
+            
+            # Check for convergence (Only look at non-NaN values)
+            if torch.max(torch.abs(pixels_undistorted_new[nan_mask] - pixels_undistorted[nan_mask])) < tolerance:
                 success = True
                 break
             # Update for the next iteration
@@ -1349,8 +1385,8 @@ def closest_point(ray1, ray2):
     c2[:,good_rays_mask] = ray2.origin[:,good_rays_mask] + ((torch.linalg.vecdot(ray1.origin[:,good_rays_mask] - ray2.origin[:,good_rays_mask], n1[:,good_rays_mask], dim=0)) / torch.linalg.vecdot(ray2.direction[:,good_rays_mask], n1[:,good_rays_mask], dim=0).unsqueeze(0)) * ray2.direction[:,good_rays_mask]
     
     # Rays with direction vector [0.,0.,0.] are 'bad rays' and should be ignored later. For now, we replace the nans with 0.
-    c1[:,~good_rays_mask] = 0. 
-    c2[:,~good_rays_mask] = 0.
+    c1[:,~good_rays_mask] = torch.nan 
+    c2[:,~good_rays_mask] = torch.nan
 
     return (c1 + c2) / 2, torch.linalg.norm(c1 - c2, dim=0)
 

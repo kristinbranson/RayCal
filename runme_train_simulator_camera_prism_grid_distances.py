@@ -16,6 +16,7 @@ from arenas.prism_arenas import Arena_reprojection_loss_two_cameras_prism_grid_d
 from utils import euclidean_distance
 from torch.utils.tensorboard import SummaryWriter
 import argparse
+import yaml
 
 #%% Dataloader
 class CalibrationDataset(Dataset):
@@ -39,6 +40,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--exp_id", type=int, help="Experiment ID")
 args = parser.parse_args()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(device)
 pi = torch.tensor(np.pi, dtype=torch.float64).to(device)
 
 exp_id = args.exp_id
@@ -396,6 +398,7 @@ arena.visualize(pixels_virtual_two_cams.to(device), color_labels=True)
 
 #%% Training setup
 batch_size=1024
+batch_size=2048
 pixels_virtual_two_cams = pixels_virtual_two_cams.to(device)
 pixels_real_two_cams = pixels_real_two_cams.to(device)
 target_coordinates = target_coordinates.to(device)
@@ -601,15 +604,15 @@ print(f'Reprojection error for two cameras: {reprojection_loss_1.mean()}, {repro
 
 plt.figure(figsize=(15,15))
 plt.scatter(
-    recon_pixels_1[0,:].detach().numpy(),
-    recon_pixels_1[1,:].detach().numpy(),
+    recon_pixels_1[0,:].cpu().detach().numpy(),
+    recon_pixels_1[1,:].cpu().detach().numpy(),
     color='g',
     marker='o',
     label='Estimate',
 )
 plt.scatter(
-    pixels_real_cam_0_test_stacked[0,:].detach().numpy(),
-    pixels_real_cam_0_test_stacked[1,:].detach().numpy(),
+    pixels_real_cam_0_test_stacked[0,:].cpu().detach().numpy(),
+    pixels_real_cam_0_test_stacked[1,:].cpu().detach().numpy(),
     color='r',
     marker='x',
     label='Ground truth',
@@ -629,17 +632,17 @@ plt.savefig(f'{model_checkpoint_dir}/reprojection_loss.png')
 fig = plt.figure(figsize=(15,15))
 ax = fig.add_subplot(projection='3d')
 ax.scatter(
-    target_coordinates_test_stacked[0,:].detach().numpy(),
-    target_coordinates_test_stacked[1,:].detach().numpy(),
-    target_coordinates_test_stacked[2,:].detach().numpy(),
+    target_coordinates_test_stacked[0,:].cpu().detach().numpy(),
+    target_coordinates_test_stacked[1,:].cpu().detach().numpy(),
+    target_coordinates_test_stacked[2,:].cpu().detach().numpy(),
     color='r',
     s=5,
     label='Ground truth',
 )
 ax.scatter(
-    recon_3D_test[0,:].detach().numpy(),
-    recon_3D_test[1,:].detach().numpy(),
-    recon_3D_test[2,:].detach().numpy(),
+    recon_3D_test[0,:].cpu().detach().numpy(),
+    recon_3D_test[1,:].cpu().detach().numpy(),
+    recon_3D_test[2,:].cpu().detach().numpy(),
     color='g',
     s=5,
     label='Estimate',
@@ -681,4 +684,13 @@ plt.savefig(f'{model_checkpoint_dir}/training_loss.png')
 #%% Visualize trained arena
 arena.visualize(pixels_virtual_two_cams_test, color_labels=True)
 plt.savefig(f'{model_checkpoint_dir}/final_arena.png')
+
+with open('temp.yaml', 'r') as file:
+    data = yaml.load(file, Loader=yaml.FullLoader)
+    
+data['model_path'] = f'{model_checkpoint_dir}/best_model_weights_only.pth'
+
+with open('temp.yaml', 'w') as file:
+    yaml.dump(data, file)
+
 # %%
