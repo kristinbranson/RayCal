@@ -18,25 +18,37 @@ class Arena_3D_loss(nn.Module):
     prism_angles=None,
     prism_center=None):
         super(Arena_3D_loss, self).__init__()
+        
+        if not isinstance(principal_point_pixel_cam_0, torch.Tensor):
+            principal_point_pixel_cam_0 = torch.tensor(principal_point_pixel_cam_0)
+        
+        if not isinstance(principal_point_pixel_cam_1, torch.Tensor):
+            principal_point_pixel_cam_1 = torch.tensor(principal_point_pixel_cam_1)
+
+        if not isinstance(focal_length_cam_0, torch.Tensor):
+            focal_length_cam_0 = torch.tensor(focal_length_cam_0)
+
+        if not isinstance(focal_length_cam_1, torch.Tensor):
+            focal_length_cam_1 = torch.tensor(focal_length_cam_1)
 
         # Camera initialization      
         principal_point_pixel_cam_0 = nn.Parameter(
-            torch.tensor(principal_point_pixel_cam_0, dtype=torch.float64).reshape(2,1),
+            principal_point_pixel_cam_0.reshape(2,1),
             requires_grad=True,
         )  
 
         principal_point_pixel_cam_1 = nn.Parameter(
-            torch.tensor(principal_point_pixel_cam_1, dtype=torch.float64).reshape(2,1),
+            principal_point_pixel_cam_1.reshape(2,1),
             requires_grad=True,
         )  
 
         focal_length_cam_0 = nn.Parameter(
-            torch.tensor(focal_length_cam_0, dtype=torch.float64),
+            focal_length_cam_0,
             requires_grad=True,
         )
 
         focal_length_cam_1 = nn.Parameter(
-            torch.tensor(focal_length_cam_1, dtype=torch.float64),
+            focal_length_cam_1,
             requires_grad=True,
         )
 
@@ -549,9 +561,20 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
         recon_3D_2, closest_distance_2 = closest_point(cam_2_ray_virtual, cam_2_ray_real)
         recon_3D_12, closest_distance_12 = closest_point(cam_1_ray_virtual, cam_2_ray_real)
         recon_3D_21, closest_distance_21 = closest_point(cam_2_ray_virtual, cam_1_ray_real)
-        recon_3D = (recon_3D_real + recon_3D_1 + recon_3D_2 + recon_3D_12 + recon_3D_21 + recon_3D_virtual) / 6
+        
+        #recon_3D = (recon_3D_real + recon_3D_1 + recon_3D_2 + recon_3D_12 + recon_3D_21 + recon_3D_virtual) / 6
+        recon_3D = torch.nanmean(
+            torch.stack([recon_3D_real, recon_3D_virtual, recon_3D_1, recon_3D_2, recon_3D_12, recon_3D_21], 
+                        dim=0),
+            dim=0
+        )
         num_points = recon_3D.shape[1] // 2
-        closest_distance = (closest_distance_real + closest_distance_virtual + closest_distance_1 + closest_distance_2 + closest_distance_12 + closest_distance_21) / 6
+        #closest_distance = (closest_distance_real + closest_distance_virtual + closest_distance_1 + closest_distance_2 + closest_distance_12 + closest_distance_21) / 6
+        closest_distance = torch.nanmean(
+            torch.stack([closest_distance_real, closest_distance_virtual, closest_distance_1, closest_distance_2, closest_distance_12, closest_distance_21], 
+                        dim=0),
+            dim=0
+        )
         closest_distance = closest_distance[:num_points]
         
         pairwise_distance = euclidean_distance(
@@ -602,6 +625,46 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
         output['distortion_penalty_cam_0'] = distortion_penalty_cam_0
         output['distortion_penalty_cam_1'] = distortion_penalty_cam_1
         output['pairwise_distance'] = pairwise_distance        
+        return output
+    
+    def pass_through_virtual_cam(self, pixels_virtual_two_cams):
+        # Input pixels aren't provided in pairs
+        self.prism = Prism(prism_size=self.prism_size, 
+                        prism_center=self.prism_center, 
+                        prism_angles=self.prism_angles,
+                        refractive_index_glass=self.refractive_index_glass,
+                        )
+
+        R_stereo_cam = get_rot_mat(
+            self.stereo_camera_angles[0],
+            self.stereo_camera_angles[1],
+            self.stereo_camera_angles[2],
+            )
+
+        camera2 = self.get_stereo_camera(self.principal_point_pixel_cam_1,
+                                    self.focal_length_cam_1,
+                                    R_stereo_cam,
+                                    self.T_stereo_cam,
+                                    r1=self.stereocam_r1,
+                                    radial_dist_coeffs=self.radial_dist_coeffs_cam_1)
+        
+        distorted_virtual_pixels_cam_0 = pixels_virtual_two_cams[:2,:]                                                    
+        distorted_virtual_pixels_cam_1 = pixels_virtual_two_cams[2:4,:]
+        
+        undistorted_virtual_pixels_cam_0 = self.camera1.undistort_pixels_classical(distorted_virtual_pixels_cam_0,
+                                                                                self.radial_dist_coeffs_cam_0)
+        
+        undistorted_virtual_pixels_cam_1 = camera2.undistort_pixels_classical(distorted_virtual_pixels_cam_1,
+                                                                            self.radial_dist_coeffs_cam_1)
+
+        cam_1_ray_virtual = self.camera1(undistorted_virtual_pixels_cam_0)
+        cam_2_ray_virtual = camera2(undistorted_virtual_pixels_cam_1)
+        _, _, cam_1_ray_virtual, _ = self.prism(cam_1_ray_virtual)
+        _, _, cam_2_ray_virtual, _ = self.prism(cam_2_ray_virtual)        
+        
+        output = {}
+        output['cam_1_ray_virtual'] = cam_1_ray_virtual
+        output['cam_2_ray_virtual'] = cam_2_ray_virtual
         return output
 
 
