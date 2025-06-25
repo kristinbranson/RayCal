@@ -25,7 +25,7 @@ end
 save_individual_grid_coordinates = false;
 cam_ids = [1, 2];
 dividing_row = 295;
-grid_size = [16, 17]; %[26, 26]; % [14, 18]; 
+grid_size = [14, 14]; %[16, 17]; %[26, 26]; % [14, 18]; 
 num_grid_pts = grid_size(1) * grid_size(2);
 use_subset_of_image = false;
 num_points = grid_size(1) * grid_size(2);
@@ -48,14 +48,32 @@ if makeVideo
     v = VideoWriter('calibration_movie.avi');
     open(v);
 end
+
+% Make sure all cameras have recorded the same number of images
+calibration_grid_image_paths = [];
+for cam_id = cam_ids
+    calibration_grid_image_paths{cam_id} = dir(fullfile([calibration_grid_folder, cam_names{cam_id}], '*.png'));
+    try 
+        lengths = [];
+        for cam_id = cam_ids
+            lengths = [lengths; length(calibration_grid_image_paths{cam_id})];
+        end
+        if all(lengths == lengths(1))
+            disp('Check passed: All cameras have the same number of frames')
+        else
+            errors('Number of images collected across different cameras do not match')
+        end
+    catch ME
+        disp('Error: ', Me.message)
+    end
+end
+
 % Loop over both cameras
 for cam_id = cam_ids
     imagePoints_prev = [];
-    grid_disp = inf;
-    calibration_grid_image_paths = [];
+    grid_disp = inf;    
     num_images = length(dir([calibration_grid_folder, cam_names{cam_id}])) - 2;
     calibration_grid_points_{cam_id} = zeros(num_images, num_points, 2);
-    calibration_grid_image_paths{cam_id} = dir(fullfile([calibration_grid_folder, cam_names{cam_id}], '*.png'));
 
     % Read image of a grid orientation for the camera
     image_names = {};
