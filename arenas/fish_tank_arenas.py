@@ -389,8 +389,8 @@ class Arena_fish_tank_pairwise_distances(nn.Module):
         fig, ax = ray2s.visualize(fig, ax, color_labels)
         ray_side.t = 500 * ray_side.t
         fig, ax = ray_side.visualize(fig, ax, color_labels)
-        fig, ax = side_plane1.visualize(fig, ax, color_labels)
-        fig, ax = side_plane2_outer.visualize(fig, ax, color_labels)
+        fig, ax = side_plane1.visualize(fig, ax)
+        fig, ax = side_plane2_outer.visualize(fig, ax)
 
         
         ray1t = self.camera1.initialize_ray(undistorted_pixels_cam_top[:, test_idx])
@@ -399,7 +399,7 @@ class Arena_fish_tank_pairwise_distances(nn.Module):
         fig, ax = ray1t.visualize(fig, ax, color_labels)  
         ray_top.t = 500 * ray_top.t
         fig, ax = ray_top.visualize(fig, ax, color_labels)     
-        fig, ax = top_plane_outer.visualize(fig, ax, color_labels)
+        fig, ax = top_plane_outer.visualize(fig, ax)
         ax.set_aspect('equal', adjustable='datalim') 
         return camera2, side_plane1, side_plane2_outer, top_plane_outer, pixels_two_cams
 
@@ -559,6 +559,7 @@ class Arena_Akihiro_fish_tank_pairwise_distances(nn.Module):
                                                 )
         self.outer_tank_center = nn.Parameter(outer_tank_center)
         self.outer_tank_angles = nn.Parameter(outer_tank_angles, requires_grad=False)
+        self.inner_tank_angles = outer_tank_angles
         self.outer_tank_thickness = nn.Parameter(outer_tank_thickness)
         self.inner_tank_distance = nn.Parameter(inner_tank_distance)
         self.inner_tank_angles = nn.Parameter(inner_tank_angles, requires_grad=False)
@@ -645,8 +646,9 @@ class Arena_Akihiro_fish_tank_pairwise_distances(nn.Module):
         ray_temp = self.camera1(pixels_top_cam_undistorted)
         ray_temp, _ = top_plane1_outer(ray_temp)
         ray_top_cam, intersection_penalty_5 = top_plane2_outer(ray_temp)
+        
         """
-        NOTE: The inner planes are not used in this version of the code.
+        NOTE: The inner planes are not used in this version of the code
         ray_temp, _ = top_plane1_inner(ray_top_cam)
         ray_top_cam, intersection_penalty_6 = top_plane2_inner(ray_temp)
         """
@@ -673,7 +675,6 @@ class Arena_Akihiro_fish_tank_pairwise_distances(nn.Module):
             recon_3D_top_side1[:, :num_points],
             recon_3D_top_side1[:, num_points:]
         )
-
 
         recon_3D_top_side2, closest_distance_top_side2 = closest_point(ray_side_cam2, ray_top_cam)
         num_points = recon_3D_top_side2.shape[1] // 2
@@ -710,6 +711,76 @@ class Arena_Akihiro_fish_tank_pairwise_distances(nn.Module):
         num_bad_rays = torch.sum(zero_columns_side1) + torch.sum(zero_columns_top) + torch.sum(zero_columns_side2)
         return recon_3D, closest_distance, pairwise_distance, intersection_penalty_1 + intersection_penalty_2 + intersection_penalty_3 + intersection_penalty_4 + intersection_penalty_5, num_bad_rays
 
+
+    def project_virtual_rays(self, pixels_two_cams):
+        R_stereo_cam1 = get_rot_mat(
+            self.stereo_camera1_angles[0],
+            self.stereo_camera1_angles[1],
+            self.stereo_camera1_angles[2],
+            )
+        # Side camera 1
+        camera2 = self.get_stereo_camera(self.principal_point_pixel_cam_1,
+                                    self.focal_length_cam_1,
+                                    R_stereo_cam1,
+                                    self.T_stereo_cam1,
+                                    r1=self.stereocam1_r1)
+        R_stereo_cam2 = get_rot_mat(
+            self.stereo_camera2_angles[0],
+            self.stereo_camera2_angles[1],
+            self.stereo_camera2_angles[2],
+            )
+        
+        # Side camera 2
+        camera3 = self.get_stereo_camera(self.principal_point_pixel_cam_2,
+                                    self.focal_length_cam_2,
+                                    R_stereo_cam2,
+                                    self.T_stereo_cam2,
+                                    r1=self.stereocam2_r1)
+        
+        side_plane11_outer, side_plane12_outer, side_plane21_outer, side_plane22_outer, top_plane1_outer, top_plane2_outer = self.get_outer_tank_planes()
+        side_plane11_inner, side_plane12_inner, side_plane21_inner, side_plane22_inner, top_plane1_inner, top_plane2_inner = self.get_inner_tank_planes()
+    
+        # NOTE: The order of the planes is important. The outer plane is the one that is hit first.
+        pixels_top_cam = pixels_two_cams[:2, :]
+        pixels_side_cam1 = pixels_two_cams[2:4, :]
+        pixels_side_cam2 = pixels_two_cams[4:6, :]
+            
+        pixels_side_cam1_undistorted = camera2.undistort_pixels_classical(pixels_side_cam1, self.radial_dist_coeffs_cam_1)
+        pixels_side_cam2_undistorted = camera3.undistort_pixels_classical(pixels_side_cam2, self.radial_dist_coeffs_cam_2)
+        pixels_top_cam_undistorted = self.camera1.undistort_pixels_classical(pixels_top_cam, self.radial_dist_coeffs_cam_0)
+        
+        # Ray tracing from camera 1 (top camera)
+        ray_temp = self.camera1(pixels_top_cam_undistorted)
+        ray_temp, _ = top_plane1_outer(ray_temp)
+        ray_top_cam, intersection_penalty_5 = top_plane2_outer(ray_temp)
+        """
+        NOTE: The inner planes are not used in this version of the code
+        ray_temp, _ = top_plane1_inner(ray_top_cam)
+        ray_top_cam, intersection_penalty_6 = top_plane2_inner(ray_temp)
+        """
+
+        intersection_penalty_6 = torch.zeros_like(intersection_penalty_5) # Until there is no inner top tank
+
+        # Ray tracing from camera 2 (first side camera)
+        ray_temp = camera2(pixels_side_cam1_undistorted)
+        ray_temp, intersection_penalty_1 = side_plane11_outer(ray_temp)
+        ray_side_cam1, intersection_penalty_2 = side_plane12_outer(ray_temp)
+        ray_temp, intersection_penalty_1 = side_plane11_inner(ray_side_cam1)
+        ray_side_cam1, intersection_penalty_2 = side_plane12_inner(ray_temp)
+        
+        # Ray tracing from camera 3 (second side camera)
+        ray_temp = camera3(pixels_side_cam2_undistorted)
+        ray_temp, intersection_penalty_3 = side_plane21_outer(ray_temp)
+        ray_side_cam2, intersection_penalty_4 = side_plane22_outer(ray_temp)
+        ray_temp, intersection_penalty_3 = side_plane21_inner(ray_side_cam2)
+        ray_side_cam2, intersection_penalty_4 = side_plane22_inner(ray_temp)        
+
+
+        outputs = {}
+        outputs['ray_side_cam_1'] = ray_side_cam1
+        outputs['ray_side_cam_2'] = ray_side_cam2
+        outputs['ray_top_cam'] = ray_top_cam
+        return outputs
 
     def visualize(self, pixels_all_cams, rand_sample=True, color_labels=None):
         num_samples = 10
@@ -804,6 +875,7 @@ class Arena_Akihiro_fish_tank_pairwise_distances(nn.Module):
         fig, ax = ray2t.visualize(fig, ax, color_labels)
         ray_top.t = 500 * ray_top.t
         fig, ax = ray_top.visualize(fig, ax, color_labels)     
+        fig, ax = top_plane2_outer.visualize(fig, ax)
         fig, ax = top_plane1_outer.visualize(fig, ax)
         
         # Inner tank, camera 1
@@ -919,8 +991,8 @@ class Arena_Akihiro_fish_tank_pairwise_distances(nn.Module):
             b=self.outer_tank_size[1],
             center=top_plane2_outer_center
         )
-
         return side_plane11_outer, side_plane12_outer, side_plane21_outer, side_plane22_outer, top_plane1_outer, top_plane2_outer
+    
     
     def get_inner_tank_planes(self):
         # side_plane11 (facing the camera), side_plane12, side_plane21 (facing the camera), side_plane22
@@ -1012,7 +1084,7 @@ class Arena_Akihiro_fish_tank_pairwise_distances(nn.Module):
         top_plane1_inner_center - self.outer_tank_thickness * axes_top[:,0].unsqueeze(-1)
 
         top_plane2_outer_center = top_plane1_inner_center - self.outer_tank_thickness * axes_top[:,0].unsqueeze(-1)
-        small_gap_width = 0.05 #This is the width I'm assuming for the gap between the two tanks. Needs to be refined later
+        small_gap_width = 0.01 #This is the width I'm assuming for the gap between the two tanks. Needs to be refined later
         top_plane1_inner_center = top_plane2_outer_center - small_gap_width * axes_top[:,0].unsqueeze(-1)
 
         top_plane1_inner = RefractingPlane(

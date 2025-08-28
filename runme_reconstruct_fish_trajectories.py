@@ -1,3 +1,4 @@
+#%%
 import torch
 from arenas.fish_tank_arenas import Arena_fish_tank_pairwise_distances
 import pickle
@@ -13,7 +14,9 @@ import pdb
 import matplotlib.cm as cm
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from matplotlib.collections import LineCollection
+import scipy.io as sio
 
+#%%
 annotations_file_path = f'/groups/branson/bransonlab/aniket/camera_alignment/annotations.pkl'
 annotations_file_path_side = f'/groups/branson/bransonlab/aniket/camera_alignment/calibration_data_initializations/sam2/cam_0_jpg_pi_754-880_mask.npz'
 annotations_file_path_top = f'/groups/branson/bransonlab/aniket/camera_alignment/calibration_data_initializations/sam2/cam_1_jpg_pi_754-880_mask.npz'
@@ -22,6 +25,10 @@ im_files_path_top = f'/groups/branson/bransonlab/aniket/camera_alignment/calibra
 output_video_path = f'/groups/branson/bransonlab/aniket/camera_alignment/calibration_data_initializations/fish_videos/reconstruction_video'
 save_video = True
 frame_rate = 30 # Hz
+
+centroids = sio.loadmat(
+    '/groups/branson/bransonlab/aniket/camera_alignment/calibration_data_initializations/sam2/centroids.mat'
+)
 
 num_frames = len(os.listdir(im_files_path_side))
 
@@ -70,7 +77,7 @@ def get_rotated_fish(im, heading, centroid, imageSize, axes_len, resize_factor):
     imageSize: (tuple) Size of the fish image
     """
     width, height = imageSize
-    width, height = width * 2, height * 2
+    width, height = width * 10, int(height * 10)
     crop_coor = [centroid[0] - width // 2, centroid[1] - height // 2, 
                  centroid[0] + width // 2, centroid[1] + height // 2]
     crop_coor = [round(int(coor)) for coor in crop_coor]
@@ -83,17 +90,18 @@ def get_rotated_fish(im, heading, centroid, imageSize, axes_len, resize_factor):
     im_rotated = cv.warpAffine(im_crop, M, (width, height))
     cy, cx = im_rotated.shape[0] // 2, im_rotated.shape[1] // 2
     #width, height = axes_len[0] * 2, int(axes_len[1] * 1.5)
-    width, height = 30 * 2, int(70 * 1.5)
+    width, height = 30 * 2, int(70 * 2)
     im_rotated = np.repeat(im_rotated[:, :, np.newaxis], 3, axis=2)
     im_rotated = im_rotated[cy - height // 2: cy + height // 2, cx - width // 2: cx + width // 2, :]    
 
     # Get the rotated fish image
     dim = (int(width * resize_factor), int(height * resize_factor))
     im_rotated = cv.resize(im_rotated, dim, interpolation=cv.INTER_AREA)    
-    im_rotated[0:2, :, 0] = 255
-    im_rotated[-3:-1, :, 0] = 255
-    im_rotated[:, 0:2, 0] = 255
-    im_rotated[:, -3:-1, 0] = 255
+    border_width = 6
+    im_rotated[0:border_width, :, 0] = 255
+    im_rotated[-(border_width+1):-1, :, 0] = 255
+    im_rotated[:, 0:border_width, 0] = 255
+    im_rotated[:, -(border_width+1):-1, 0] = 255
     return im_rotated
  
 
@@ -196,13 +204,16 @@ def get_heading_vector(centroid, heading, length):
 
 fig = plt.figure(figsize=(40, 18))
 gs = gridspec.GridSpec(1, 2, width_ratios=[1.5, 1])  # Equal width for both columns
-ax1 = fig.add_subplot(gs[0, 0], projection='3d')  # Larger subplot spanning both columns
-ax2 = fig.add_subplot(gs[0, 1])  # Smaller subplot on the left
+gs = gridspec.GridSpec(3, 2, width_ratios=[1.5, 1], height_ratios=[1, 1, 0.2])
+ax1 = fig.add_subplot(gs[:, 0], projection='3d')  # Larger subplot spanning both columns
+ax2 = fig.add_subplot(gs[:, 1])  # Smaller subplot on the left
+
 C_side, mask_side = get_annotations_from_sam_npz(annotations_file_path_side, 'side')
 C_top, mask_top = get_annotations_from_sam_npz(annotations_file_path_top, 'top')
 headings_top, axes_lens = get_fish_heading(mask_top)
 #C_side, C_top = get_annotations_from_pkl(annotations_file_path)
 
+vid_frame_id = 0
 def update(frame_id):
     ax1.cla()
     pad = 50 # padding between plot of top camera image and side camera image
@@ -245,9 +256,9 @@ def update(frame_id):
     ax1.set_xticks(x_ticks)
     ax1.set_yticks(y_ticks)
     ax1.set_zticks(z_ticks)
-    ax1.set_xticklabels(x_ticks, fontsize=18)
-    ax1.set_yticklabels(y_ticks, fontsize=18)
-    ax1.set_zticklabels(z_ticks, fontsize=18)
+    ax1.set_xticklabels(x_ticks, fontsize=14)
+    ax1.set_yticklabels(y_ticks, fontsize=14)
+    ax1.set_zticklabels(z_ticks, fontsize=14)
     ax1.tick_params(axis='x', pad=10)  # Increase padding for x-axis tick labels
     ax1.tick_params(axis='y', pad=10)  # Increase padding for y-axis tick labels
     ax1.tick_params(axis='z', pad=8)  # Increase padding for z-axis tick labels
@@ -256,34 +267,57 @@ def update(frame_id):
     ax1.set_ylabel('Y (mm)', fontsize=22, labelpad=40)
     ax1.set_zlabel('Z (mm)', fontsize=22, labelpad=17)
     ax1.set_title(f'3-D reconstruction', fontsize=28, pad=1)
-    ax1.view_init(elev=-15., azim=210., roll=180.)    
-
+    ax1.view_init(elev=-15., azim=210., roll=180.)   
+    #temp = cv.imread('temp.png')
+    #ax1.imshow(temp, extent=[2, 4, -1, 1], alpha=0.6, zorder=10) 
     
     im_side = plt.imread(im_files_side[frame_id])[:,:,:3][::-1, ::-1]
+    print(im_files_side[frame_id])
     im_side = im_side / im_side.max() * 255
     im_side = im_side.astype(np.uint8)
+    temp = im_side[:, :, 0].copy()
+    clahe = cv.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    temp = clahe.apply(temp)
+    im_side = np.repeat(temp[:, :, np.newaxis], 3, axis=2)
+
     im_top = plt.imread(im_files_top[frame_id])[:,:,:3]
     im_top = im_top / im_top.max() * 255
     im_top = im_top.astype(np.uint8)
+    temp = im_top[:, :, 0].copy()
+    clahe = cv.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    temp = clahe.apply(temp)
+    im_top = np.repeat(temp[:, :, np.newaxis], 3, axis=2)
+
     im_side = draw_axes(im_side, center_x=150, center_y=150, length=100, color=(255,255,255), axis1_name='Y', axis2_name='Z')
     im_top = draw_axes(im_top, center_x=150, center_y=150, length=100, color=(255,255,255), axis1_name='X', axis2_name='-Y')        
-    
-    # Plot the raw images and overlay cropped, rotated images    
-    heading_top = headings_top[frame_id]
+    fov_size = 200
     axes_len = axes_lens[frame_id]
+    #im_temp = cv.imread('temp.png')
+    rot_im = get_rotated_fish(im_top[:,:,0], -headings_top[frame_id], C_top[:,frame_id], [fov_size, fov_size], axes_len, resize_factor=8)    
+    cv.imwrite(f'cropped_rotated_fish/cropped_fish_{frame_id:04}.png', rot_im.astype(np.uint8))
+    cv.imwrite('temp1.png', rot_im)
+
+    #resize_factor = 2
+    #dim = (int(im_temp.shape[1] * resize_factor), int(im_temp.shape[0] * resize_factor))
+    #im_temp = cv.resize(im_temp, dim, interpolation=cv.INTER_AREA)  
+    #im_temp[im_temp.shape[0] - rot_im.shape[0]:im_temp.shape[0],
+    #im_temp.shape[1] - rot_im.shape[1]:im_temp.shape[1], :] = rot_im
+
+    # Plot the raw images and overlay cropped, rotated images
+    heading_top = headings_top[frame_id]
     centroid_top = C_top[:, frame_id]
     heading_vector_top = get_heading_vector(centroid_top, heading_top, length=100)
-    fov_size = 200
-    rot_im = get_rotated_fish(im_top[:,:,0], -headings_top[frame_id], C_top[:,frame_id], [fov_size, fov_size], axes_len, resize_factor=8)
     
-    im_top[im_top.shape[0] - rot_im.shape[0]:im_top.shape[0],
-              im_top.shape[1] - rot_im.shape[1]:im_top.shape[1], :] = rot_im
+    
+    #im_top[im_top.shape[0] - rot_im.shape[0]:im_top.shape[0],
+    #          im_top.shape[1] - rot_im.shape[1]:im_top.shape[1], :] = rot_im
     im = np.concatenate((im_top, 255 * np.ones((50, im_side.shape[1], im_side.shape[2]), np.uint8), im_side), axis=0)    
     font = cv.FONT_HERSHEY_SIMPLEX    
     font_thickness = 3
     ax2.cla()
     cv.putText(im, f'Time: {1000 / frame_rate * (frame_id-1):.2f} ms', (650, 100), font, 3, (255,255,255), font_thickness, cv.LINE_AA)
     ax2.imshow(im, cmap='gray')
+    
     """
     ax2.plot([centroid_top[0], heading_vector_top[0]], 
              [centroid_top[1], heading_vector_top[1]], 
@@ -329,6 +363,7 @@ def update(frame_id):
     """
     ax2.set_xticks([])
     ax2.set_yticks([])
+    fig.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.1, hspace=0.3, wspace=0.3)
     
 
 #%% 
@@ -366,7 +401,7 @@ arena.load_state_dict(checkpoint['model_state_dict'])
 #%%
 pixels_two_cams = torch.vstack((C_top, C_top, C_side, C_side))
 recon_3D, closest_distance_loss_test, pairwise_distance_recon_test, _, _ = arena(pixels_two_cams)
-recon_3D = recon_3D[:, :pixels_two_cams.shape[1] // 2].detach().numpy()
+recon_3D = recon_3D[:, :recon_3D.shape[1] // 2].detach().numpy()
 x_min, x_max, y_min, y_max, z_min, z_max = get_plot_limits(recon_3D, zoom_factor=1)
 num_annotations = recon_3D.shape[1]
 
@@ -381,3 +416,4 @@ if save_video:
     # Save as MP4    
     #ani.save(f'{output_video_path}.mp4', writer='ffmpeg', fps=6)
     ani.save(f'{output_video_path}.mp4', writer=writer, dpi=100)
+# %%
