@@ -36,8 +36,27 @@ class CalibrationDataset(Dataset):
 load_checkpoint = False
 calibration_results_dir = os.path.join(
     '/groups/branson/bransonlab/aniket/camera_alignment/',
-    'matlab_scripts/calibration_data_20250426/calibration_new_grid/'
+    '2025-07-29_danionella_priapus_tank/camera_calibration_2025-07-29/calibration_new_grid'
 )
+
+top_whole_grid = torch.tensor(sio.loadmat(os.path.join(
+    calibration_results_dir,
+    'top.mat'
+)
+)['calibration_grid_points_top'][0]).T
+side1_whole_grid = torch.tensor(sio.loadmat(os.path.join(
+    calibration_results_dir,
+    'side1.mat'
+)
+)['calibration_grid_points_side1'][0]).T
+side2_whole_grid = torch.tensor(sio.loadmat(os.path.join(
+    calibration_results_dir,
+    'side2.mat'
+)
+)['calibration_grid_points_side2'][0]).T
+
+
+#%%
 calibration_results_file = 'results.mat'
 calibration_results_path = os.path.join(calibration_results_dir, calibration_results_file)
 outputs_dir = 'outputs'
@@ -54,7 +73,10 @@ output_cam_0_pairwise = torch.tensor(mat['output_cam_0_pairwise'], dtype=torch.f
 output_cam_1_pairwise = torch.tensor(mat['output_cam_2_pairwise'], dtype=torch.float64).T - 1.
 output_cam_2_pairwise = torch.tensor(mat['output_cam_1_pairwise'], dtype=torch.float64).T - 1.
 
-num_data_points = 8000
+max_data_points_to_use = 10000 # Grid point pairs to use for calibration
+if output_cam_0_pairwise.shape[1] > max_data_points_to_use:
+    num_data_points = max_data_points_to_use
+
 #sampled_data_points = rand_ind = torch.randperm(output_cam_0_pairwise.shape[1])[:num_data_points]
 rand_ind = output_cam_0_pairwise[:num_data_points]
 output_cam_0_pairwise = output_cam_0_pairwise[:,:num_data_points]
@@ -62,7 +84,7 @@ output_cam_1_pairwise = output_cam_1_pairwise[:,:num_data_points]
 output_cam_2_pairwise = output_cam_2_pairwise[:,:num_data_points]
 
 pixels_all_cams = torch.vstack((output_cam_0_pairwise,
-                                output_cam_1_pairwise, 
+                                output_cam_1_pairwise,
                                 output_cam_2_pairwise)
                                 )
 pairwise_distances = torch.tensor(mat['pairwise_distances'][:num_data_points,0]).to(torch.float64)
@@ -72,20 +94,20 @@ K2 = torch.tensor(mat['side2K']).to(torch.float64)
 K3 = torch.tensor(mat['side1K']).to(torch.float64)
 
 R = torch.eye(3, dtype=torch.float64)
-R_stereo_cam_1 = roty(pi/2-pi) @ rotz(pi/2) @ R
-T_stereo_cam_1 = torch.tensor([-491., -0., -200.], dtype=torch.float64)[:, None]
+R_stereo_cam_1 = roty(pi/2 - pi) @ rotz(pi/2) @ R
+T_stereo_cam_1 = torch.tensor([-530., -0., -250.], dtype=torch.float64)[:, None]
 T_stereo_cam_1 = R_stereo_cam_1.T @ T_stereo_cam_1
 
 R_stereo_cam_2 = rotx(pi/2) @ rotz(pi) @ R
-T_stereo_cam_2 = torch.tensor([0., -487., -200.], dtype=torch.float64)[:, None]
+T_stereo_cam_2 = torch.tensor([0., -530., -250.], dtype=torch.float64)[:, None]
 T_stereo_cam_2 = R_stereo_cam_2.T @ T_stereo_cam_2
 
 principal_point_pixel_cam_0 = torch.tensor([K1[0,2] - 1, K1[1,2] - 1], dtype=torch.float64)
 principal_point_pixel_cam_1 = torch.tensor([K2[0,2] - 1, K2[1,2] - 1], dtype=torch.float64)
 principal_point_pixel_cam_2 = torch.tensor([K3[0,2] - 1, K3[1,2] - 1], dtype=torch.float64)
 
-focal_length_cam_1 = (K1[0,0] + K1[1,1]) /  2
-focal_length_cam_2 = (K2[0,0] + K2[1,1]) /  2
+focal_length_cam_1 = (K1[0,0] + K1[1,1]) / 2
+focal_length_cam_2 = (K2[0,0] + K2[1,1]) / 2
 focal_length_cam_3 = (K3[0,0] + K2[1,1]) / 2
 
 
@@ -117,6 +139,10 @@ def freeze_stereocamera(arena):
     arena.stereo_camera2_angles.requires_grad = False
     arena.stereocam1_r1.requires_grad = False
     arena.stereocam2_r1.requires_grad = False
+
+def freeze_camera_angles(arena):
+    arena.stereo_camera1_angles.requires_grad = False
+    arena.stereo_camera2_angles.requires_grad = False
 
 def freeze_tank_orientation(arena):
     arena.outer_tank_angles.requires_grad = False
@@ -166,17 +192,17 @@ outer_tank_angles = torch.tensor(
     dtype=torch.float64,
 )
 outer_tank_center = torch.tensor(
-    [250., 0., 176.],
+    [245., -10., 252.],
     dtype=torch.float64,
 ) # Center of the side plane in the world frame
 
 outer_tank_size = torch.tensor(
-    [508., 508., 152.],
+    [508., 530., 152.],
     dtype=torch.float64,
 ) # 508 mm = 20 inches
 
 outer_tank_thickness = torch.tensor(
-    [12.],
+    [12.7],
     dtype=torch.float64
 )
 
@@ -192,17 +218,17 @@ inner_tank_angles = torch.tensor(
 
 plane_temp = Plane(axes=inner_tank_axes)
 inner_tank_distance = torch.tensor(
-    [112., 0., 176.],
+    [101., 10., 196.],
     dtype=torch.float64,
 ) # Center of the side plane in the world frame
 
 inner_tank_size = torch.tensor(
-    [250., 250., 100.],
+    [250., 270., 152.],
     dtype=torch.float64,
 )
 
 inner_tank_thickness = torch.tensor(
-    [3.],
+    [3.1],
     dtype=torch.float64
 )
 
@@ -231,11 +257,11 @@ arena = Arena_Akihiro_fish_tank_pairwise_distances(principal_point_pixel_cam_0,
 #freeze_stereocamera(arena)
 freeze_tank_orientation(arena)
 freeze_tank_thickness(arena)
-freeze_tank_orientation(arena)
 freeze_refractive_indices(arena)
-#freeze_camera_intrinsics(arena)
-freeze_stereocamera(arena)
-freeze_tank_size(arena)
+freeze_camera_angles(arena)
+# freeze_camera_intrinsics(arena)
+#freeze_stereocamera(arena)
+#freeze_tank_size(arena)
 
 #%% Training and validation functions
 def train_two_cams(model, train_loader, criterion, plot=False):    
@@ -247,9 +273,7 @@ def train_two_cams(model, train_loader, criterion, plot=False):
     bad_rays_penalty = 0.
     
     with torch.autograd.set_detect_anomaly(True):
-        # Iterate over minibatches
-        if plot:
-            plt.figure()
+        # Iterate over minibatches        
         for input, pairwise_distance_batch in train_loader:         
             num_examples = input.shape[0]       
             optimizer.zero_grad()
@@ -266,6 +290,20 @@ def train_two_cams(model, train_loader, criterion, plot=False):
             intersection_loss += intersection_penalty.sum().item()
             bad_rays_penalty += 1e3 * num_bad_rays.sum().item()
             pairwise_dist_loss += pairwise_distance_loss.item()
+            
+        if plot:
+            # 3D plot
+            plt.figure(figsize=(10, 10))
+            ax = plt.axes(projection='3d')
+            ax.scatter(
+                recon_3D[0,:].detach().numpy(),
+                recon_3D[1,:].detach().numpy(),
+                recon_3D[2,:].detach().numpy(),
+                color='g',
+                s=5,
+                label='Estimate',
+            )
+                
     return total_loss / len(train_loader.dataset), pairwise_dist_loss / len(train_loader.dataset), intersection_loss / len(train_loader.dataset), closest_dist_loss / len(train_loader.dataset), bad_rays_penalty / len(train_loader.dataset)
 
 
@@ -321,7 +359,7 @@ train_loader = DataLoader(pixels_all_cams_train, batch_size=batch_size, shuffle=
 val_loader = DataLoader(pixels_all_cams_val, batch_size=batch_size, shuffle=False)
 
 num_epochs = 800
-optimizer = optim.Adam(arena.parameters(), lr=5e-1
+optimizer = optim.Adam(arena.parameters(), lr=1
                        )
 criterion = torch.nn.MSELoss()
 device = torch.device("cpu")
@@ -339,42 +377,51 @@ best_loss = 1e100
 
 plot = False
 for epoch in tqdm(range(num_epochs)):
-    if epoch == 60:
+    if epoch == 50:
         for param_group in optimizer.param_groups:
             param_group['lr'] = 5e-2
+
     if epoch == 100:
         for param_group in optimizer.param_groups:
             param_group['lr'] = 5e-3
             unfreeze_all_parameters(arena)
+            freeze_camera_angles(arena)
+            freeze_tank_orientation(arena)
+
     if epoch == 200:
         for param_group in optimizer.param_groups:
             param_group['lr'] = 5e-3
+    
+    if epoch == 400:
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = 1e-3
+            unfreeze_all_parameters(arena)
+
     if epoch == 1250:
         for param_group in optimizer.param_groups:
             param_group['lr'] = 1e-4          
+        
+    if plot:
+        plt.title(f'Epoch {epoch}')
     
+    if epoch % 100 == 0:
+        plot = True
+            
     train_loss, train_pairwise_distance_loss, train_intersection_loss, train_closest_distance_loss, _ = train_two_cams(model=arena, 
                     train_loader=train_loader, 
                     criterion=criterion,
                     plot=plot
                     )
-    
-    if plot:
-        plt.title(f'Epoch {epoch}')
-    plot = False
-    if epoch % 10 == 0:
-        print(f'Training loss for epoch {epoch}: train_loss: {train_loss}')
-        if epoch % 200 == 0:
-            plot = True
+    plot = False    
     train_loss_array.append(train_loss)
     
-
     val_loss, val_pairwise_distance_loss, val_intersection_loss, val_closest_distance_loss, bad_rays_penalty = validate(model=arena,
              val_loader=val_loader,
              criterion=criterion,
              )
     
     if epoch % 10 == 0:
+        print(f'Training loss for epoch {epoch}: train_loss: {train_loss}')
         print(f'Validation loss for epoch {epoch}: val_loss: {val_loss}, pairwise_distance_loss: {val_pairwise_distance_loss}, intersection_loss: {val_intersection_loss}, closest_distance_loss: {val_closest_distance_loss}, bad_rays_penalty: {bad_rays_penalty}')
         # Save checkpoint
         torch.save({
@@ -459,10 +506,13 @@ arena.load_state_dict(checkpoint['model_state_dict'])
 # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
 recon_3D_test, closest_distance_loss_test, pairwise_distance_recon_test, _, _ = arena(pixels_all_cams_test)
-
 print(f'Closest distance loss: {closest_distance_loss_test.mean()}')
 pairwise_distance_loss = torch.abs(pairwise_distances_test - pairwise_distance_recon_test).mean()
 print(f'Pairwise distance loss {pairwise_distance_loss}')
+
+output = "Pairwise distance loss: {pairwise_distance_loss}, Closest distance loss: {closest_distance_loss}"
+with open(f"{model_checkpoint_dir}/errors.txt", "w") as f:
+    f.write(output)
 
 fig = plt.figure()
 ax = fig.add_subplot(projection='3d')
@@ -475,7 +525,6 @@ ax.scatter(
     label='Estimate',
 )
 ax.set_aspect('equal')
-
 
 #%% Test loss
 #%% Make plots after training

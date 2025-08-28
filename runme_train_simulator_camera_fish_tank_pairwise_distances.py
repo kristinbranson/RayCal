@@ -18,7 +18,6 @@ from arenas.fish_tank_arenas import Arena_fish_tank_pairwise_distances
 from utils import euclidean_distance
 from torch.utils.tensorboard import SummaryWriter
 
-
 #%% Dataloader
 class CalibrationDataset(Dataset):
     def __init__(self, data, pairwise_distances):
@@ -107,7 +106,6 @@ def freeze_refractive_indices(arena):
 def unfreeze_all_parameters(arena):
     for param in arena.parameters():
         param.requires_grad = True
-
 
 
 #%% Initialize an Arena instance
