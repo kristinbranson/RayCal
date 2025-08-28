@@ -1,6 +1,6 @@
-% dataDir = '../prism_new_led';
+% dataDir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/';
 exp_root_folder = dataDir; 
-% exp_id = 24;
+% exp_id = 60;
 calibrate_all_cameras = false;
 grid_type = 'dot'; % square or dot
 cam_names = {'cam_0', 'cam_1', 'cam_2', 'cam_3'};
@@ -14,7 +14,7 @@ else
     load([grid_data_folder, '/calibration_grid_points_', cam_names{cam_ids(1)}, '.mat'])
 end
 if strcmp(grid_type, 'dot')
-    checkerBoardSize = [16, 17]; %[26, 26]; %[14, 18];
+    checkerBoardSize = [14, 14] ; %[16, 17]; %[26, 26]; %[14, 18];
     %     checkerBoardSize = [5, 10];
     checkerBoardSquareSize = 1; % mm
 else

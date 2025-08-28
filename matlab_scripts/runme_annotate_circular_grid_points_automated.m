@@ -2,7 +2,7 @@
 % Camera ids are cam_0 = 1, cam_1 = 2, reflection of cam_0 = 3, reflection of cam_1 = 4
 
 %% User-defined parameters
-% exp_id = 23;
+% exp_id = 49;
 makeVideo = false;
 analyze_all_cams = false;
 tilted_cameras = true;
@@ -24,7 +24,7 @@ end
 
 save_individual_grid_coordinates = false;
 cam_ids = [1, 2];
-dividing_row = 295;
+% dividing_row = [1223, 1223];
 grid_size = [14, 14]; %[16, 17]; %[26, 26]; % [14, 18]; 
 num_grid_pts = grid_size(1) * grid_size(2);
 use_subset_of_image = false;
@@ -64,7 +64,7 @@ for cam_id = cam_ids
             errors('Number of images collected across different cameras do not match')
         end
     catch ME
-        disp('Error: ', Me.message)
+        disp(['Error: ', ME.message])
     end
 end
 
@@ -93,9 +93,7 @@ for cam_id = cam_ids
             crop_coor = [1,size(im,1),1,size(im,2)];
         end
         im = im(crop_coor(1):crop_coor(2), crop_coor(3):crop_coor(4));
-        [imagePoints, ~] = detectCircleGridPoints(im, grid_size, 'PatternType', 'symmetric');
-        
-        
+        [imagePoints, ~] = detectCircleGridPoints(im, grid_size, 'PatternType', 'symmetric');              
 
         if size(imagePoints, 1) ~= num_grid_pts
             rejected_files{cam_id} = [rejected_files{cam_id}; calibration_grid_image_paths{cam_id}(im_id).name];
@@ -104,6 +102,14 @@ for cam_id = cam_ids
 
         if im_id > 1 && ~isempty(imagePoints_prev)
             grid_disp = mean(vecnorm(imagePoints - imagePoints_prev, 2, 2));
+        end
+
+        smallest_dist = diff(imagePoints, 1);
+        smallest_dist = min(sqrt(smallest_dist(:,1).^2 + smallest_dist(:,2).^2));
+        
+        if smallest_dist < 5
+            rejected_files{cam_id} = [rejected_files{cam_id}; calibration_grid_image_paths{cam_id}(im_id).name];
+            continue
         end
 
         if grid_disp < grid_disp_thresh

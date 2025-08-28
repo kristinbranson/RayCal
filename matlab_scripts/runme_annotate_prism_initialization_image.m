@@ -1,11 +1,11 @@
 %% User-defined parameters
-% exp_id = 25;
 prism_size = 20; % mm
 cam_suffix = '';
 analyze_all_cams = false;
 tilted_cameras = true;
 waitTimeBetweenImages = 0;
 % dataDir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/';
+% exp_id = 61;
 exp_root_folder = dataDir;
 results_folder = [exp_root_folder, '/exp_', num2str(exp_id), '/results', cam_suffix, '/'];
 mkdir(results_folder)
@@ -21,8 +21,8 @@ else
     annotations_folder = [exp_root_folder, '/exp_', num2str(exp_id), '/annotations_automated_exp_ref_',num2str(exp_id), '/'];
 end
 
-dividing_col = [dividing_col, dividing_col];
-%dividing_col = [1155, 1155]; 
+%dividing_col = [dividing_col, dividing_col];
+% dividing_col = [1233, 1233];
 
 save_individual_grid_coordinates = false;
 cam_ids = [1];
@@ -69,7 +69,6 @@ for cam_id = cam_ids
 
     imagePoints_r = rectify_order(imagePoints_r, grid_size);
 %%      
-
     if cam_id == 1
         imagePoints_r = flip_grid_v(imagePoints_r, grid_size);
     end
@@ -156,26 +155,28 @@ for i = 1:3
         [worldPoints_rot(1,2), worldPoints_rot(1,2) + axes_grid(2,i)], ...
         [worldPoints_rot(1,3), worldPoints_rot(1,3) + axes_grid(3,i)])
 end
-grid_location = mean(worldPoints_rot, 1);
+grid_location = mean(worldPoints_rot, 1); % Center of the grid
 
 %% Compute prism axis
-% grid_offset = (grid_size(1) + 2) / sqrt(2) / 2;
-grid_offset = (grid_size(1) + 0.5) / sqrt(2) / 2;
+grid_offset = (grid_size(1) + 2) / sqrt(2) / 2; % How much does the grid extend outside the prism's back edge (farther edge from the camera)
+% grid_offset = (grid_size(1) + 0.5) / sqrt(2) / 2;
 % grid_mount_height = 3;
-grid_mount_height = 3.5;
+grid_mount_height = 1.7; % 1 + sqrt(2)
+grid_thickness = 1; % Also includes some 
 % axes_prism = roty(-45) * axes_grid;
-axes_prism = rotate_vector(axes_grid, axes_grid(:,2), -45); % Rotate about the horizontal axis
-location_prism = grid_location + (prism_size - grid_offset) * axes_prism(:,1)' - (prism_size / 2 + grid_offset + grid_mount_height) * axes_prism(:,3)';
+axes_prism = rotate_vector(axes_grid, axes_grid(:,2), -45); % Rotate about the horizontal axis (axes_grid(:,2))
+location_prism = grid_location + (prism_size - grid_offset - grid_thickness) * axes_prism(:,1)' - (prism_size / 2 + grid_offset + grid_mount_height) * axes_prism(:,3)';
 save([results_folder, '/prism_initialization.mat'], 'location_prism', 'axes_prism')
 
 %% Show all axes
-plot_axes(axes_grid, grid_location, 'k')
-axes_prism1 = roty(-45) * axes_grid;
-location_prism = grid_location + (prism_size - grid_offset) * axes_prism1(:,1)' - (prism_size / 2 + grid_offset + grid_mount_height) * axes_prism1(:,3)';
-plot_axes(axes_prism1, location_prism, 'r')
-axes_prism2 = rotate_vector(axes_grid, axes_grid(:,2), -45);
-location_prism = grid_location + (prism_size - grid_offset) * axes_prism2(:,1)' - (prism_size / 2 + grid_offset + grid_mount_height) * axes_prism2(:,3)';
-plot_axes(axes_prism2, location_prism, 'g')
+% figure,
+% plot_axes(axes_grid, grid_location, 'k')
+% axes_prism1 = roty(-45) * axes_grid;
+% location_prism = grid_location + (prism_size - grid_offset) * axes_prism1(:,1)' - (prism_size / 2 + grid_offset + grid_mount_height) * axes_prism1(:,3)';
+% plot_axes(axes_prism1, location_prism, 'r')
+% axes_prism2 = rotate_vector(axes_grid, axes_grid(:,2), -45);
+% location_prism = grid_location + (prism_size - grid_offset) * axes_prism2(:,1)' - (prism_size / 2 + grid_offset + grid_mount_height) * axes_prism2(:,3)';
+% plot_axes(axes_prism2, location_prism, 'g')
 
 %%
 temp = rotate_vector(axes_grid, [0;1;0], -45);

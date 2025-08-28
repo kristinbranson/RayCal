@@ -1,5 +1,5 @@
 %% User inputs
-% exp_id = 23;
+% exp_id = 61;
 cam_names = {'cam_0', 'cam_1'};
 mean_reprojection_error = 0.07; % Reprojection error of real cameras, to decide a threshold to identify stationary targets
 frame_rate = 100;
@@ -17,6 +17,8 @@ export_triangulated_points = true;
 make_scatter_plot = false;
 grid_size = [9, 9];
 grid_spacing = 1;
+% dataDir = ['/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_' ...
+    % 'new_led/'];
 
 %% Load data
 % dataDir = []; % Get this from the bash script (path to prism_new_led/)
@@ -143,7 +145,7 @@ colors = jet(size(imagePoints_a, 2));
 
 % figure,
 for i = 1:size(imagePoints_b, 2)
-    display(['Triangulating points from ', num2str(ball_size_list(i) / 10), 'mm ball bearing. ', num2str(i), ...
+    display(['Triangulating points target ', num2str(ball_size_list(i) / 10), ' ', num2str(i), ...
         ' of ', num2str(size(imagePoints_b, 2))])
     hough_threshold00 = graythresh(score00{i});
     hough_threshold02 = graythresh(score02{i});
@@ -227,7 +229,7 @@ output_data_cam_1_moving_undistorted = [];
 output_data_cam_02_moving_undistorted = [];
 output_data_cam_13_moving_undistorted = [];
 mkdir([results_dir, 'figures/'])
-figure, 
+
 for i = 1:size(imagePoints_a, 2)
     acceptable_reprojection_errors_all = [acceptable_reprojection_errors_all; reprojection_errors{i}(acceptable_detect_id{i})];
     acceptable_reprojection_errors{i} = reprojection_errors{i}(acceptable_detect_id{i});
@@ -255,6 +257,7 @@ end
 
 
 %% Scatter plot of reprojection errors for every ball size
+figure, 
 if make_scatter_plot
     for i = 1:size(imagePoints_a, 2)
         scatter(zeros(size(acceptable_reprojection_errors{i}, 1)) + (ball_size_list(i) + 2*(-0.5 + rand(size(acceptable_reprojection_errors{i}, 1), 1))), ...

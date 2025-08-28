@@ -2,7 +2,7 @@
 % Camera ids are cam_0 = 1, cam_1 = 2, reflection of cam_0 = 3, reflection of cam_1 = 4
 
 %% User-defined parameters
-% exp_id = 45;
+% exp_id = 49;
 cam_suffix = '';
 analyze_all_cams = false;
 tilted_cameras = true;
@@ -24,9 +24,6 @@ else
     annotations_folder = [exp_root_folder, '/exp_', num2str(exp_id), '/annotations_automated_exp_ref_',num2str(exp_id), '/'];
 end
 
-%dividing_col = [dividing_col, dividing_col];
-%dividing_col = [1067, 1067]; 
-% dividing_col = [1241, 1244];
 
 save_individual_grid_coordinates = false;
 cam_ids = [1, 2];
@@ -73,10 +70,10 @@ for cam_id = cam_ids
             errors('Number of images collected across different cameras do not match')
         end
     catch ME
-        disp('Error: ', Me.message)
+        disp(['Error: ', ME.message])
     end
 end
-
+% dividing_col = [1223, 1223];
 %%
 for cam_id = cam_ids
     imagePoints_r_prev = [];
@@ -127,6 +124,7 @@ for cam_id = cam_ids
         smallest_dist_r = min(sqrt(smallest_dist_r(:,1).^2 + smallest_dist_r(:,2).^2));
         smallest_dist_v = diff(imagePoints_v, 1);
         smallest_dist_v = min(sqrt(smallest_dist_v(:,1).^2 + smallest_dist_v(:,2).^2));
+
         %%
         if smallest_dist_r < 5 || smallest_dist_v < 5 % TODO: This should be set by the size of a dot in pixels on the calibration grid 
             rejected_files{cam_id} = [rejected_files{cam_id}; calibration_grid_image_paths{cam_id}(im_id).name];
@@ -185,8 +183,8 @@ for cam_id = cam_ids
         crop_coor = [];
     end
 
-    save_config_file(config_file_name, calibration_grid_folder, annotations_folder, cam_names, cam_id, ...
-        crop_coor, image_names)
+    % save_config_file(config_file_name, calibration_grid_folder, annotations_folder, cam_names, cam_id, ...
+        % crop_coor, image_names)
 end
 %%
 filtered_points = intersect(accepted_files{1}, accepted_files{2});
