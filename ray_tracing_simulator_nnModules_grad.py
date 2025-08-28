@@ -38,7 +38,6 @@ def rotx(angle):
     torch.stack([torch.tensor(0.0, device=angle.device), torch.sin(angle), torch.cos(angle)])
     ])
 
-
 def roty(angle):
     """
     Rotation matrix around y-axis.
@@ -57,7 +56,6 @@ def roty(angle):
                 torch.tensor(0.0, device=angle.device)]),
     torch.stack([-torch.sin(angle), torch.tensor(0.0, device=angle.device), torch.cos(angle)])
     ])
-
 
 def rotz(angle):
     """
@@ -78,7 +76,6 @@ def rotz(angle):
                 torch.tensor(1.0, device=angle.device, dtype=torch.float64)])
     ])
     
-
 def get_rot_mat(alpha, beta, gamma):
         return torch.mm(torch.mm(rotz(gamma), roty(beta)), rotx(alpha)) # Rotation matrix
 
@@ -114,7 +111,6 @@ def closest_distance_from_point(point, ray):
     distances = perp_vectors.norm(dim=0)  # shape: (num_rays,)
 
     return distances
-
 
 
 # %%Ray class (for a ray of light)
@@ -422,10 +418,11 @@ class Plane(nn.Module):
         ray_t[~good_rays_mask,:] = torch.nan 
         ray.t = ray_t.clone().detach()
         intersection = ray.origin + ray_t.t() * ray.direction
+
         # Check if the ray intersects the plane
         d_intersection = intersection - self.center        
-        distance_horizontal = torch.mm(self.axes[:,1][:,None].T, d_intersection)
-        distance_vertical = torch.mm(self.axes[:,2][:,None].T, d_intersection)
+        distance_horizontal = torch.abs(torch.mm(self.axes[:,1][:,None].T, d_intersection)) # Component of the distance along the horizontal axis
+        distance_vertical = torch.abs(torch.mm(self.axes[:,2][:,None].T, d_intersection)) # Component of the distance along the vertical axis
         intersection_penalty = torch.cat((distance_horizontal - self.a / 2, distance_vertical - self.b / 2), dim=0)
         intersection_penalty = torch.sum(torch.relu(intersection_penalty)**2, dim=0)
 
@@ -434,6 +431,17 @@ class Plane(nn.Module):
         intersection_penalty[bad_rays_mask[:,0]] = -10 # There is no other way that intersection penalty can be  negative (because relu)
         return intersection, intersection_penalty
 
+
+    def get_plane_corners(self):
+        """
+        Get the four corners of the plane as a (3,4) tensor  
+        Order: top right, top left, bottom left, bottom right      
+        """
+        corner1 = self.center + self.horizontal_direction * self.a / 2 + self.vertical_direction * self.b / 2
+        corner2 = self.center - self.horizontal_direction * self.a / 2 + self.vertical_direction * self.b / 2
+        corner3 = self.center - self.horizontal_direction * self.a / 2 - self.vertical_direction * self.b / 2
+        corner4 = self.center + self.horizontal_direction * self.a / 2 - self.vertical_direction * self.b / 2
+        return torch.hstack((corner1, corner2, corner3, corner4))
 
     def rotate_sides(self, side1=None, side2=None, side3=None, side4=None, alpha=None, beta=None, gamma=None, rot_mat=None):
         """

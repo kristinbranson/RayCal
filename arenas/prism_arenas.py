@@ -119,6 +119,8 @@ class Arena_3D_loss(nn.Module):
         return plane.alpha, plane.beta, plane.gamma
     
     
+
+
     def forward(self, pixels_virtual_two_cams):
         camera2 = self.get_camera_2(self.principal_point_pixel_cam_1,
                                     self.focal_length_cam_1,
@@ -284,6 +286,7 @@ class Arena_reprojection_loss_two_cameras_prism(nn.Module):
             r1=r1)
         camera2.update_camera_pose(R, T)
         return camera2
+
 
 
     def forward(self, pixels_virtual_two_cams, pixels_real_two_cams):
@@ -506,6 +509,15 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
             radial_dist_coeffs=radial_dist_coeffs)
         camera2.update_camera_pose(R, T)
         return camera2
+    
+
+    def get_prism_corners(self):
+        front_plane, reflecting_plane, top_plane = self.prism.get_planes(prism_center=self.prism.prism_center,
+                                                                         prism_angles=self.prism.prism_angles,)
+        front_plane_corners = front_plane.get_plane_corners()
+        reflecting_plane_corners = reflecting_plane.get_plane_corners()
+        top_plane_corners = top_plane.get_plane_corners()
+        return front_plane_corners, reflecting_plane_corners, top_plane_corners
 
 
     def forward(self, pixels_virtual_two_cams, pixels_real_two_cams):
