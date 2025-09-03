@@ -2,10 +2,6 @@
 #!/bin/bash
 source config.log
 
-#rootDataDir='/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/' # This is the directory where imaging data from all experiments is stored in separate folders named exp_xx
-#APT_path='/groups/branson/bransonlab/aniket/APT/'
-#PTR_dir='/groups/branson/bransonlab/PTR_fly_annotations_3D/'
-
 # Check if a directory argument is provided
 if [ "$#" -lt 1 ]; then
 	echo "Usage: $0 <experiment_id (int)>"
@@ -28,8 +24,9 @@ cam13Dir="$experimentDataDir/cam_13"
 
 flyDircam0="$rootDataDir/exp_$1/fly_images/cam_0/"
 flyDircam1="$rootDataDir/exp_$1/fly_images/cam_1/"
-flyDircam0Cropped="$flyDircam0/cropped/"
-flyDircam1Cropped="$flyDircam1/cropped/"
+flyDircam0Cropped="$rootDataDir/exp_$1/fly_images/cropped_uniform_sizes"
+flyDircam1Cropped="$rootDataDir/exp_$1/fly_images/cropped_uniform_sizes"
+echo "Creating directories to save cropped .ufmf fly videos $flyDircam0Cropped and $flyDircam1Cropped"
 mkdir $flyDircam0Cropped
 mkdir $flyDircam1Cropped
 
@@ -124,28 +121,28 @@ echo "Dividing column for the second image: ${dividing_col[1]}"
 echo "Image width for the second image: ${image_width[1]}"
 
 echo "Detecting and saving dotted grids from cam_0 and cam_1. These will be used for estimating camera intrinsics"
-#/misc/local/matlab-2023a/bin/matlab -batch "exp_id = $1; dataDir = '$rootDataDir'; run('matlab_scripts/runme_annotate_circular_grid_points_automated.m')"
+/misc/local/matlab-2023a/bin/matlab -batch "exp_id = $1; dataDir = '$rootDataDir'; run('matlab_scripts/runme_annotate_circular_grid_points_automated.m')"
 
 echo "Calibrating camera intrinsics and extrinsics and saving them"
-#/misc/local/matlab-2023a/bin/matlab -batch "exp_id = $1; dataDir = '$rootDataDir'; run('matlab_scripts/runme_calibrate_grid_automated.m')"
+/misc/local/matlab-2023a/bin/matlab -batch "exp_id = $1; dataDir = '$rootDataDir'; run('matlab_scripts/runme_calibrate_grid_automated.m')"
 
 echo "Detecting and saving dotted grids from cam_02 and cam_13"
-#/misc/local/matlab-2023a/bin/matlab -batch "exp_id = $1; dividing_col = [${dividing_col[0]}, ${dividing_col[1]}];  dataDir = '$rootDataDir'; run('matlab_scripts/runme_annotate_grid_prism.m')"
+/misc/local/matlab-2023a/bin/matlab -batch "exp_id = $1; dividing_col = [${dividing_col[0]}, ${dividing_col[1]}];  dataDir = '$rootDataDir'; run('matlab_scripts/runme_annotate_grid_prism.m')"
 
 echo "Exporting grid coordinates in a format ready for calibration"
-#/misc/local/matlab-2023a/bin/matlab -batch "exp_id = $1; dataDir = '$rootDataDir'; run('matlab_scripts/runme_export_data_two_cams.m')"
+/misc/local/matlab-2023a/bin/matlab -batch "exp_id = $1; dataDir = '$rootDataDir'; run('matlab_scripts/runme_export_data_two_cams.m')"
 
 echo "Exporting prism initialization"
-#/misc/local/matlab-2023a/bin/matlab -batch "exp_id = $1; dividing_col = [${dividing_col[0]}, ${dividing_col[1]}] ; dataDir = '$rootDataDir'; run('matlab_scripts/runme_annotate_prism_initialization_image.m')"
+/misc/local/matlab-2023a/bin/matlab -batch "exp_id = $1; dividing_col = [${dividing_col[0]}, ${dividing_col[1]}] ; dataDir = '$rootDataDir'; run('matlab_scripts/runme_annotate_prism_initialization_image.m')"
 
 echo "Training calibration model using pytorch-based ray-tracing"
 
 export PYTHONPATH="$APT_path/deepnet/"
 
-#virtual_view_size=1331
-#real_view_size=753
+# Compute cropping parameters and crop movies to ufmf file: each movie frame from raw ufmf files is converted into two frames comprising the virtual and real view
 starting_col=(0 0)
-
+crop_lower_real_view=(0 0) #Lower cropping bound for the real view for either of the cameras
+crop_upper_real_view=(0 0) #Upper cropping bound for the real view for either of the cameras
 
 if [ ${dividing_col[0]} -gt $virtual_view_size ]; then
     starting_col[0]=$((dividing_col[0] - virtual_view_size))
@@ -161,47 +158,76 @@ else
     dividing_col[1]=$virtual_view_size
 fi
 
-#
 if [ $[image_width[0]-dividing_col[0]] -gt $real_view_size ]; then
-	crop_lower_real_view=${dividing_col[0]}
-	crop_upper_real_view=$((dividing_col[0] + real_view_size))
+	crop_lower_real_view[0]=${dividing_col[0]}
+	crop_upper_real_view[0]=$((dividing_col[0] + real_view_size))
 else
-	crop_lower_real_view=$((image_width[0] - real_view_size))
-	crop_upper_real_view=$[image_width[0] - 1]
+	crop_lower_real_view[0]=$((image_width[0] - real_view_size))
+	crop_upper_real_view[0]=$[image_width[0] - 1]
 fi
 
-echo ${starting_col[0]}
-echo ${dividing_col[0]}
-echo $crop_lower_real_view
-echo $crop_upper_real_view
+if [ $[image_width[1]-dividing_col[1]] -gt $real_view_size ]; then
+        crop_lower_real_view[1]=${dividing_col[1]}
+        crop_upper_real_view[1]=$((dividing_col[1] + real_view_size))
+else
+        crop_lower_real_view[1]=$((image_width[1] - real_view_size))
+        crop_upper_real_view[1]=$[image_width[1] - 1]
+fi
+
+# Pick the more generous cropping parameteres of the two cameras and assign them consistently across botht the cameras
+if (${dividing_col[0]} > ${dividing_col[1]}); then
+	dividing_col[1]=${dividing_col[0]}
+else
+	dividing_col[0]=${dividing_col[1]}
+fi
+
+if (${starting_col[0]} > ${starting_col[1]}); then
+        starting_col[0]=${starting_col[1]}
+else
+        starting_col[1]=${starting_col[0]}
+fi
+
+if (${crop_upper_real_view[0]} > ${crop_upper_real_view[1]}); then
+	crop_upper_real_view[1]=${crop_upper_real_view[0]}
+else
+	crop_upper_real_view[0]=${crop_upper_real_view[1]}
+fi
+
+if (${crop_lower_real_view[0]} > ${crop_lower_real_view[1]}); then
+        crop_lower_real_view[0]=${crop_lower_real_view[1]}
+else
+        crop_lower_real_view[1]=${crop_lower_real_view[0]}
+fi
+
+echo "Cropping parameters for cam_0 (secondary camera)"
+echo "crop cols: [[${starting_col[0]},${dividing_col[0]}],[${crop_lower_real_view[0]},${crop_upper_real_view[0]}]]"
+echo "Cropping parameters for cam_1 (primary camera)"
+echo "crop cols: [[${starting_col[1]},${dividing_col[1]}],[${crop_lower_real_view[1]},${crop_upper_real_view[1]}]]"
+
+
+# Rotate, crop and save ufmf for cam_0 (primary camera)
 find "$flyDircam0" -maxdepth 1 -type f -name "image_*" | while IFS= read -r file; do
     echo "Processing file: $file"
-    echo "crop cols: [[${starting_col[0]},${dividing_col[0]}],[$crop_lower_real_view,$crop_upper_real_view]]"
+    echo "crop cols: [[${starting_col[0]},${dividing_col[0]}],[${crop_lower_real_view[0]},${crop_upper_real_view[0]}]]"
     python /groups/branson/bransonlab/aniket/APT/deepnet/crop_ufmf.py $file --croprows "[[0,-1],[0,-1]]" --cropcols "[[${starting_col[0]},${dividing_col[0]}],[$crop_lower_real_view,$crop_upper_real_view]]" --outdir $flyDircam0Cropped/ --rot90 1
 done
 
-if [ $[image_width[1]-dividing_col[1]] -gt $real_view_size ]; then
-        crop_lower_real_view=${dividing_col[1]}
-        crop_upper_real_view=$((dividing_col[1] + real_view_size))
-else
-        crop_lower_real_view=$((image_width[1] - real_view_size))
-        crop_upper_real_view=$[image_width[1] - 1]
-fi
-
+# Rotate, crop and save ufmf for cam_1 (secondary camera)
 find "$flyDircam1" -maxdepth 1 -type f -name "image_*" | while IFS= read -r file; do
     echo "Processing file: $file"
-    echo "crop cols: [[${starting_col[1]},${dividing_col[1]}],[$crop_lower_real_view,$crop_upper_real_view]]"
-    python /groups/branson/bransonlab/aniket/APT/deepnet/crop_ufmf.py $file --croprows "[[0,-1],[0,-1]]" --cropcols "[[${starting_col[1]},${dividing_col[1]}],[$crop_lower_real_view,$crop_upper_real_view]]" --outdir $flyDircam1Cropped/ --rot90 1
+    echo "crop cols: [[${starting_col[1]},${dividing_col[1]}],[$crop_lower_real_view[1],$crop_upper_real_view[1]]]"
+    python /groups/branson/bransonlab/aniket/APT/deepnet/crop_ufmf.py $file --croprows "[[0,-1],[0,-1]]" --cropcols "[[${starting_col[1]},${dividing_col[1]}],[${crop_lower_real_view[1]},${crop_upper_real_view[1]}]]" --outdir $flyDircam1Cropped/ --rot90 1
 done
 
-#python /groups/branson/bransonlab/aniket/APT/deepnet/crop_ufmf.py  --croprows "[[0,-1],[0,-1]]" --cropcols "[[0,$[dividing_col-1]],[$dividing_col,-1]]" --outdir ../data/flyprism/cropped/cam_0/ --rot90 1
 
+# Write useful cropping parameters to a temporary YAML file 'temp.yaml'
 yaml_file="temp.yaml"
-
-# Write to a temporary YAML file 'temp.yaml'
 echo "dividing_col: [${dividing_col[0]}, ${dividing_col[1]}]" > "$yaml_file"
+echo "crop_upper_real_view: [${crop_upper_real_view[0]}, ${crop_upper_real_view[1]}]" > "$yaml_file"
 echo "image_width: [${image_width[0]}, ${image_width[1]}]">> "$yaml_file"
-echo "python_script: '/groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/refraction_model/calprism/pyCall/return_projected_ray_two_cameras_prism.py'" >> "$yaml_file"
+
+#TODO: Was the following line necessary
+#echo "python_script: '/groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/refraction_model/calprism/pyCall/return_projected_ray_two_cameras_prism.py'" >> "$yaml_file"
 
 python runme_train_simulator_camera_prism_grid_distances.py --exp_id $1
 model_file_name='best_model_weights_only.pth'
@@ -225,12 +251,21 @@ END
 )"
 
 
-mkdir "$APT_path/calibration_data"
-mkdir "$PTR_dir/exp$1/"
-mkdir "$PTR_dir/exp$1/movies"
-/misc/local/matlab-2023a/bin/matlab -batch "calibrations = []; dividing_col=[${dividing_col[0]}, ${dividing_col[1]}]; image_width=[${image_width[0]}, ${image_width[1]}]; model_path='$PTR_dir/exp$1/$model_file_name'; nviews=4; python_script_path='$python_script_path'; raytracing=1; save(['$APT_path', '/calibration_data/exp_$1_calibration_data.mat']); exit;"
-cp $APT_path/calibration_data/exp_$1_calibration_data.mat $PTR_dir/exp$1/
-cp $model_path $PTR_dir/exp$1/
-cp $flyDircam0Cropped/*.ufmf $PTR_dir/exp$1/movies
-cp $flyDircam1Cropped/*.ufmf $PTR_dir/exp$1/movies
-cp $model_path $PTR_dir/exp$1/
+#mkdir "$root_data_directory/exp_$1/fly_images/cropped_uniform_sizes"
+calibration_files_path = "$root_data_directory/exp_$1/calibration_files"
+mkdir $calibration_files_path
+#mkdir "$PTR_dir/exp$1/"
+#mkdir "$PTR_dir/exp$1/movies"
+
+# Save calibration.mat file by running a MATLAB instance
+/misc/local/matlab-2023a/bin/matlab -batch "calibrations = []; clipping_col=[${crop_upper_real_view[0]}, ${crop_upper_real_view[1]}]; dividing_col=[${dividing_col[0]}, ${dividing_col[1]}]; image_width=[${image_width[0]}, ${image_width[1]}]; model_path='$PTR_dir/exp$1/$model_file_name'; nviews=4; python_script_path='$python_script_path'; raytracing=1; save(['$calibration_files_path']); exit;"
+
+
+#cp $APT_path/calibration_data/exp_$1_calibration_data.mat $PTR_dir/exp$1/
+# Copy .pth file
+cp $model_path $calibration_files_path
+
+
+#cp $flyDircam0Cropped/*.ufmf $PTR_dir/exp$1/movies
+#cp $flyDircam1Cropped/*.ufmf $PTR_dir/exp$1/movies
+#cp $model_path $PTR_dir/exp$1/
