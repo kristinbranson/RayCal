@@ -4,6 +4,7 @@ import torch.nn as nn
 from ray_tracing_simulator_nnModules_grad import Prism, Ray, Plane, ReflectingPlane, RefractingPlane, EfficientCamera, visualize_camera_configuration, closest_point, rotx, get_rot_mat
 from utils import euclidean_distance, rotation_matrix_to_quaternion
 pi = torch.tensor(np.pi, dtype=torch.float64)
+import math
 
 # 3-D reconstruction loss
 class Arena_3D_loss(nn.Module):
@@ -443,6 +444,7 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
             torch.tensor(1e-6, dtype=torch.float64),
             requires_grad=True,
         )
+        self.virtual_proj_prob_thresh = 0. # Default is to not use virtual reprojection for reprojection error computation (since it is very expensive). Can be set to a value between 0 and 1
 
         self.radial_dist_coeffs_cam_0 = nn.Parameter(torch.tensor([0.,0.,0.]).unsqueeze(-1).to(torch.float64),
                                                requires_grad=True)
@@ -598,16 +600,27 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
         recon_pixels_2_undistorted = camera2.reproject(recon_3D, R2, T2)
         recon_pixels_2 = camera2.distort_pixels_classical(recon_pixels_2_undistorted, self.radial_dist_coeffs_cam_1)
       
-        distortion_penalty_cam_0 = self.camera1.calculate_distortion_penalty(recon_pixels_1, 
+        distortion_penalty_cam_0 = self.camera1.calculate_distortion_penalty(recon_pixels_1,
                                                                              self.radial_dist_coeffs_cam_0)
         distortion_penalty_cam_1 = camera2.calculate_distortion_penalty(recon_pixels_2,
                                                                         self.radial_dist_coeffs_cam_1)
         
-        recon_pixels_0_virtual_undistorted = self.camera1.reproject(recon_3D_virtual, R1, T1)
-        recon_pixels_0_virtual = self.camera1.distort_pixels_classical(recon_pixels_0_virtual_undistorted, self.radial_dist_coeffs_cam_0)
-        recon_pixels_1_virtual_undistorted = camera2.reproject(recon_3D_virtual, R2, T2)
-        recon_pixels_1_virtual = camera2.distort_pixels_classical(recon_pixels_1_virtual_undistorted, self.radial_dist_coeffs_cam_1)
-      
+        recon_pixels_0_from_virtual_undistorted = self.camera1.reproject(recon_3D_virtual, R1, T1)
+        recon_pixels_0_from_virtual = self.camera1.distort_pixels_classical(recon_pixels_0_from_virtual_undistorted, self.radial_dist_coeffs_cam_0)
+        recon_pixels_1_from_virtual_undistorted = camera2.reproject(recon_3D_virtual, R2, T2)
+        recon_pixels_1_from_virtual = camera2.distort_pixels_classical(recon_pixels_1_from_virtual_undistorted, self.radial_dist_coeffs_cam_1)
+
+        prob_virtual_reprojection = torch.rand(1)
+        if prob_virtual_reprojection < self.virtual_proj_prob_thresh:
+            recon_pixels_virtual = self.pseudo_reprojection_to_virtual_view(
+                recon_3D, 
+                image_width=[1920,1920], 
+                image_height=[1200, 1200], 
+                cam_label_projection='both')
+            recon_pixels_1_to_virtual_undistorted, recon_pixels_2_to_virtual_undistorted = recon_pixels_virtual[:2,:], recon_pixels_virtual[2:,:]
+            recon_pixels_1_to_virtual = self.camera1.distort_pixels_classical(recon_pixels_1_to_virtual_undistorted, self.radial_dist_coeffs_cam_0)
+            recon_pixels_2_to_virtual = camera2.distort_pixels_classical(recon_pixels_2_to_virtual_undistorted, self.radial_dist_coeffs_cam_1)
+
         #distortion_penalty_cam_0 = self.camera1.calculate_distortion_penalty(recon_pixels_1, 
         #                                                                     self.radial_dist_coeffs_cam_0)
         #distortion_penalty_cam_1 = camera2.calculate_distortion_penalty(recon_pixels_2,
@@ -630,53 +643,191 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
         output['closest_distance_21'] = closest_distance_21
         output['recon_pixels_1'] = recon_pixels_1
         output['recon_pixels_2'] = recon_pixels_2
-        output['recon_pixels_0_virtual'] = recon_pixels_0_virtual
-        output['recon_pixels_1_virtual'] = recon_pixels_1_virtual
+        output['recon_pixels_0_virtual'] = recon_pixels_0_from_virtual
+        output['recon_pixels_1_virtual'] = recon_pixels_1_from_virtual
+        output['recon_pixels_1_to_virtual'] = recon_pixels_1_to_virtual if prob_virtual_reprojection < self.virtual_proj_prob_thresh else None
+        output['recon_pixels_2_to_virtual'] = recon_pixels_2_to_virtual if prob_virtual_reprojection < self.virtual_proj_prob_thresh else None
         output['intersection_penalty_1'] = intersection_penalty_1
         output['intersection_penalty_2'] = intersection_penalty_2
         output['distortion_penalty_cam_0'] = distortion_penalty_cam_0
         output['distortion_penalty_cam_1'] = distortion_penalty_cam_1
-        output['pairwise_distance'] = pairwise_distance        
+        output['pairwise_distance'] = pairwise_distance    
+        
         return output
     
-    def pass_through_virtual_cam(self, pixels_virtual_two_cams):
+    def pseudo_reprojection_to_virtual_view(self, point, image_width, image_height=[1200, 1200], cam_label_projection='primary'):
+        """
+        Reprojection in virtual view (cannot be done using inverse ray tracing)
+        cam_label_projection (str): ["primary", "secondary", "both"]
+        point: 3D point in the world coordinates
+        Returns the closest virtual pixel to the point in the virtual camera.
+        """    
+        if len(point.shape) == 2:
+            point = point.unsqueeze(1)
+        num_points = point.shape[-1]
+        device = point.device
+        resolution_for_virtual_projection = 0.01 # pixel accuracy needed to get reprojection in the virtual camera
+        grid_factor = 4  
+        if cam_label_projection == 'primary':
+            width = [image_width[0], image_width[0]] # Only to make the script compatible with the multiple camera case
+            height = [image_height[0], image_height[0]] # Only to make the script compatible with the multiple camera case
+            num_views = 1
+        elif cam_label_projection == 'secondary':
+            width = [image_width[1], image_width[1]] # Only to make the script compatible with the multiple camera case
+            height = [image_height[1], image_height[1]] # Only to make the script compatible with the multiple camera case
+            num_views = 1
+        elif cam_label_projection == 'both':
+            num_views = 2
+            width = image_width
+            height = image_height
+        
+        #virtual_pixels_grid = torch.zeros(2 * num_views, grid_factor * grid_factor).to(dtype=torch.float64, device=device)
+        num_iterations = math.ceil(math.log(width[0] / resolution_for_virtual_projection, grid_factor)) # number of iterations needed to get the virtual pixel
+        num_iterations = int(num_iterations)
+
+        center = torch.zeros(2 * num_views, num_points).to(dtype=torch.float64, device=device) 
+        with torch.no_grad():
+            for i in range(num_views):
+                center[i*2:(i+1)*2, :] = torch.tensor([width[i] / 2, height[i] / 2]).to(dtype=torch.float64, device=device)[:, None]
+            
+            x = torch.linspace(-0.5 + 1/grid_factor/2, 0.5 - 1/grid_factor/2, grid_factor)
+            y = torch.linspace(-0.5 + 1/grid_factor/2, 0.5 - 1/grid_factor/2, grid_factor) 
+            [xx, yy] = torch.meshgrid(x, y)
+            xx = xx.flatten().unsqueeze(-1).T
+            yy = yy.flatten().unsqueeze(-1).T
+                    
+            # Reshape for broadcasting
+            xx = xx.unsqueeze(2) # (1, grid_factor, 1)
+            yy = yy.unsqueeze(2) # (1, grid_factor, 1)
+            for _ in range(num_iterations):            
+                center = center.unsqueeze(1) # Reshape for broadcasting (4, 1, num_points)
+                grid_points_x = xx * width[0] + center[0,:]
+                grid_points_x = grid_points_x.reshape(1, -1)
+                grid_points_y = yy * height[0] + center[1,:]
+                grid_points_y = grid_points_y.reshape(1, -1)
+                virtual_pixels_grid = torch.vstack(
+                        (grid_points_x, 
+                            grid_points_y)
+                        )
+                #virtual_pixels_grid = torch.vstack((xx * width[0] + center[0,:], yy * height[0] + center[1,:]))    
+                for view in range(1, num_views):
+                    grid_points_x = xx * width[view] + center[2*view,:]
+                    grid_points_x = grid_points_x.reshape(1, -1)
+                    grid_points_y = yy * height[view] + center[2*view+1,:]
+                    grid_points_y = grid_points_y.reshape(1, -1)
+
+                    virtual_pixels_grid = torch.vstack(
+                                                        (virtual_pixels_grid, 
+                                                            torch.vstack(
+                                                                (grid_points_x, 
+                                                                    grid_points_y)
+                                                                    )
+                                                                )
+                                                            ) 
+                rays_dict = self.pass_through_virtual_cam(virtual_pixels_grid, cam_label=cam_label_projection)
+                if cam_label_projection == 'primary':
+                    ray = rays_dict["cam_1_ray_virtual"]
+                elif cam_label_projection == 'secondary':
+                    ray = rays_dict["cam_2_ray_virtual"]
+                
+                
+                if not(cam_label_projection == 'both'):
+                    #distance = ray.distance_to_point(point) # (num_rays, num_points)
+                    ray_direction = ray.direction.view(3, grid_factor, num_points)
+                    ray_origin = ray.origin.view(3, grid_factor, num_points)
+                    distance = self.vectorized_distance_between_rays_and_points(ray_origin, ray_direction, point)
+                    min_arg = torch.argmin(distance, dim=0)
+                    virtual_pixels_grid = virtual_pixels_grid.reshape(4, grid_factor**2, num_points)
+                    center = virtual_pixels_grid[:, min_arg, torch.arange(num_points)]
+
+                    if len(center.shape) == 1:
+                        center = center[:, None]
+                    width = [width_el / grid_factor for width_el in width]
+                    height = [height_el / grid_factor for height_el in height]
+                    
+                elif cam_label_projection == 'both':                
+                    ray1, ray2 = rays_dict["cam_1_ray_virtual"], rays_dict["cam_2_ray_virtual"]                
+                    ray_direction = ray1.direction.reshape(3, grid_factor**2, num_points)
+                    ray_origin = ray1.origin.reshape(3, grid_factor**2, num_points)
+                    #distance1 = ray1.distance_to_point(point) # (num_rays, num_points)
+                    distance1 = self.vectorized_distance_between_rays_and_points(ray_origin, ray_direction, point)
+                    min_arg1 = torch.argmin(distance1, dim=0)
+
+                    ray_direction = ray2.direction.reshape(3, grid_factor**2, num_points)
+                    ray_origin = ray2.origin.reshape(3, grid_factor**2, num_points)
+                    #distance2 = ray2.distance_to_point(point) # (num_rays, num_points)
+                    distance2 = self.vectorized_distance_between_rays_and_points(ray_origin, ray_direction, point)
+                    min_arg2 = torch.argmin(distance2, dim=0)
+                    virtual_pixels_grid = virtual_pixels_grid.reshape(4, grid_factor**2, num_points) # (3, K, N)
+                    center1 = virtual_pixels_grid[:2, min_arg1, torch.arange(num_points)]
+                    if len(center1.shape) == 1:
+                        center1 = center1[:, None]
+                    center2 = virtual_pixels_grid[2:, min_arg2, torch.arange(num_points)]
+                    if len(center2.shape) == 1:
+                        center2 = center2[:, None]
+                    center = torch.vstack((center1, center2))
+                    width = [width_el / grid_factor for width_el in width]
+                    height = [height_el / grid_factor for height_el in height]
+        
+        return center
+
+    def vectorized_distance_between_rays_and_points(self, ray_origin, ray_direction, point):
+        """
+        This is used in reprojecting rays in virtual views
+        ray_origin: (tensor) origin of the ray (3, K, N)
+        ray_direction: (tensor) direction of the ray (3, K, N)
+        pts: (tensor) points from which to compute distance to the subset (3,K) of rays (1,1,N)
+        """
+        point_shifted = point - ray_origin # (3, K, N)
+        distance = torch.cross(ray_direction, point_shifted, dim=0)  # (3, K, N)
+        distance = torch.linalg.norm(distance, dim=0) # (K, N)
+        return distance
+
+    def pass_through_virtual_cam(self, pixels_virtual_two_cams, cam_label='both'):
         # Input pixels aren't provided in pairs
-        self.prism = Prism(prism_size=self.prism_size, 
-                        prism_center=self.prism_center, 
+        self.prism = Prism(prism_size=self.prism_size,
+                        prism_center=self.prism_center,
                         prism_angles=self.prism_angles,
                         refractive_index_glass=self.refractive_index_glass,
                         )
+        
+        if cam_label == 'primary':
+            distorted_virtual_pixels_cam_0 = pixels_virtual_two_cams
+        elif cam_label == 'secondary':
+            distorted_virtual_pixels_cam_1 = pixels_virtual_two_cams
+        elif cam_label == 'both':
+            distorted_virtual_pixels_cam_0 = pixels_virtual_two_cams[:2,:]
+            distorted_virtual_pixels_cam_1 = pixels_virtual_two_cams[2:4,:]
 
-        R_stereo_cam = get_rot_mat(
+        output = {}
+        output['cam_1_ray_virtual'] = None
+        output['cam_2_ray_virtual'] = None
+
+        if cam_label == 'primary' or cam_label == 'both':
+            undistorted_virtual_pixels_cam_0 = self.camera1.undistort_pixels_classical(distorted_virtual_pixels_cam_0,
+                                                                                self.radial_dist_coeffs_cam_0)
+            cam_1_ray_virtual = self.camera1(undistorted_virtual_pixels_cam_0)
+            _, _, cam_1_ray_virtual, _ = self.prism(cam_1_ray_virtual)
+            output['cam_1_ray_virtual'] = cam_1_ray_virtual
+            
+        if cam_label == 'secondary' or cam_label == 'both':
+            R_stereo_cam = get_rot_mat(
             self.stereo_camera_angles[0],
             self.stereo_camera_angles[1],
             self.stereo_camera_angles[2],
             )
-
-        camera2 = self.get_stereo_camera(self.principal_point_pixel_cam_1,
+            camera2 = self.get_stereo_camera(self.principal_point_pixel_cam_1,
                                     self.focal_length_cam_1,
                                     R_stereo_cam,
                                     self.T_stereo_cam,
                                     r1=self.stereocam_r1,
                                     radial_dist_coeffs=self.radial_dist_coeffs_cam_1)
-        
-        distorted_virtual_pixels_cam_0 = pixels_virtual_two_cams[:2,:]                                                    
-        distorted_virtual_pixels_cam_1 = pixels_virtual_two_cams[2:4,:]
-        
-        undistorted_virtual_pixels_cam_0 = self.camera1.undistort_pixels_classical(distorted_virtual_pixels_cam_0,
-                                                                                self.radial_dist_coeffs_cam_0)
-        
-        undistorted_virtual_pixels_cam_1 = camera2.undistort_pixels_classical(distorted_virtual_pixels_cam_1,
+            undistorted_virtual_pixels_cam_1 = camera2.undistort_pixels_classical(distorted_virtual_pixels_cam_1,
                                                                             self.radial_dist_coeffs_cam_1)
+            cam_2_ray_virtual = camera2(undistorted_virtual_pixels_cam_1)
+            _, _, cam_2_ray_virtual, _ = self.prism(cam_2_ray_virtual)
+            output['cam_2_ray_virtual'] = cam_2_ray_virtual
 
-        cam_1_ray_virtual = self.camera1(undistorted_virtual_pixels_cam_0)
-        cam_2_ray_virtual = camera2(undistorted_virtual_pixels_cam_1)
-        _, _, cam_1_ray_virtual, _ = self.prism(cam_1_ray_virtual)
-        _, _, cam_2_ray_virtual, _ = self.prism(cam_2_ray_virtual)        
-        
-        output = {}
-        output['cam_1_ray_virtual'] = cam_1_ray_virtual
-        output['cam_2_ray_virtual'] = cam_2_ray_virtual
         return output
 
 
