@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from ray_tracing_simulator_nnModules_grad_6d_rotation import Prism, Ray, Plane, ReflectingPlane, RefractingPlane, EfficientCamera, visualize_camera_configuration, closest_point, rotx, get_rot_mat, Rotation6D
+from ray_tracing_simulator_nnModules_grad import Prism, Ray, Plane, ReflectingPlane, RefractingPlane, EfficientCamera, visualize_camera_configuration, closest_point, rotx, get_rot_mat, Rotation6D
 from utils import euclidean_distance, rotation_matrix_to_quaternion
 pi = torch.tensor(np.pi, dtype=torch.float64)
 import math
