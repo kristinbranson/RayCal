@@ -1287,9 +1287,6 @@ class Prism(nn.Module):
             if len(prism_center.shape) == 1:
                 prism_center = prism_center.reshape((3, 1))        
 
-        if not isinstance(prism_angles, torch.Tensor):
-            prism_angles = torch.tensor(prism_angles, 
-                                        dtype=torch.float64)    
         
         if not isinstance(refractive_index_glass, torch.Tensor):
             refractive_index_glass = torch.tensor(
@@ -1312,7 +1309,7 @@ class Prism(nn.Module):
         #rot_mat = get_rot_mat(prism_alpha, prism_beta, prism_gamma)
         rot_mat = prism_rotation_6d.matrix()
         axes1 = torch.mm(rot_mat, 
-                            torch.tensor([[1.,0.,0.], [0.,1.,0.], [0.,0.,1.]], device=self.prism_rotation_6d.device, dtype=torch.float64).t()
+                            torch.tensor([[1.,0.,0.], [0.,1.,0.], [0.,0.,1.]], device=self.prism_center.device, dtype=torch.float64).t()
                             )        
         plane1 = RefractingPlane(
                             refractive_idx_1=self.refractive_index_air,
@@ -1323,12 +1320,12 @@ class Prism(nn.Module):
                             center=prism_center,
                             ) # Plane facing the camera
 
-        rot_mat_135 = get_rot_mat(torch.tensor(0.).to(device=self.prism_rotation_6d.device, dtype=torch.float64),
-                                  3*pi.to(device=self.prism_rotation_6d.device) / 4,
-                                  torch.tensor(0.).to(device=self.prism_rotation_6d.device, dtype=torch.float64))
+        rot_mat_135 = get_rot_mat(torch.tensor(0.).to(device=self.prism_center.device, dtype=torch.float64),
+                                  3*pi.to(device=self.prism_center.device) / 4,
+                                  torch.tensor(0.).to(device=self.prism_center.device, dtype=torch.float64))
         
         axes_135 = torch.mm(rot_mat_135, 
-                            torch.tensor([[1.,0.,0.], [0.,1.,0.], [0.,0.,1.]], device=self.prism_rotation_6d.device, dtype=torch.float64).t()
+                            torch.tensor([[1.,0.,0.], [0.,1.,0.], [0.,0.,1.]], device=self.prism_center.device, dtype=torch.float64).t()
                             )
         
         axes2 = torch.mm(rot_mat, axes_135)
@@ -1340,16 +1337,16 @@ class Prism(nn.Module):
                             center=plane2_center,
                             )
         
-        rot_90 = get_rot_mat(torch.tensor(0.).to(device=self.prism_rotation_6d.device, dtype=torch.float64),
-                             pi.to(device=self.prism_rotation_6d.device)/2,
-                             torch.tensor(0.).to(device=self.prism_rotation_6d.device, dtype=torch.float64))
+        rot_90 = get_rot_mat(torch.tensor(0.).to(device=self.prism_center.device, dtype=torch.float64),
+                             pi.to(device=self.prism_center.device)/2,
+                             torch.tensor(0.).to(device=self.prism_center.device, dtype=torch.float64))
 
         #rot_90 = get_rot_mat(plane3_angles[0],
         #                     pi/2 + self.plane3_angles[1],
         #                     plane3_angles[2])
         
         axes3 = torch.mm(rot_90,
-                            torch.tensor([[1.,0.,0.], [0.,1.,0.], [0.,0.,1.]], device=self.prism_rotation_6d.device, dtype=torch.float64).t()
+                            torch.tensor([[1.,0.,0.], [0.,1.,0.], [0.,0.,1.]], device=self.prism_center.device, dtype=torch.float64).t()
                             )
         axes3 = torch.mm(rot_mat, axes3)
 
@@ -1403,7 +1400,7 @@ class Prism(nn.Module):
         if ax is None:
             ax = fig.add_subplot(111, projection='3d')
         plane1, plane2, plane3 = self.get_planes(self.prism_center,
-                                                 self.prism_angles)
+                                                 self.prism_rotation_6d)
         fig, ax = plane1.visualize(fig, ax)
         fig, ax = plane2.visualize(fig, ax, color=[[0.5, 0.5, 0.5]])
         fig, ax = plane3.visualize(fig, ax, color=[0.5, 0.5, 0.5])
@@ -1420,7 +1417,7 @@ class Prism(nn.Module):
         if ax is None:
             ax = fig.add_subplot(111, projection='3d')
         plane1, plane2, plane3 = self.get_planes(self.prism_center,
-                                                self.prism_angles)
+                                                self.prism_rotation_6d)
         ray2, _ = plane1(incident_ray)
         ray3, _ = plane2(ray2)
         ray4, _ = plane3(ray3)

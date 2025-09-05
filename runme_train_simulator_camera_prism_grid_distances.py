@@ -158,7 +158,7 @@ def freeze_individual_planes(prism):
 def freeze_stereocamera(arena):
     arena.focal_length_cam_1.requires_grad = False
     arena.principal_point_pixel_cam_1.requires_grad = False
-    arena.stereo_camera_angles.requires_grad = False
+    arena.stereo_camera_rotation_6d.requires_grad = False
     arena.stereocam_r1.requires_grad = False
 
 def freeze_prism_parameters_subset(arena):
@@ -251,11 +251,7 @@ plt.plot(
     linewidth=2,
 )
 
-R2 = get_rot_mat(
-            arena.stereo_camera_angles[0],
-            arena.stereo_camera_angles[1],
-            arena.stereo_camera_angles[2],
-            )
+R2 = arena.R_stereo_cam
 T2 = arena.T_stereo_cam
 camera2 = arena.get_stereo_camera(arena.principal_point_pixel_cam_1,
                             arena.focal_length_cam_1,

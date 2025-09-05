@@ -481,7 +481,7 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
         self.prism_rotation_6d = Rotation6D(prism_angles[0],
                                             prism_angles[1],
                                             prism_angles[2])
-        print(self.prism_rotation_6d)
+
         refractive_index_glass = torch.tensor(1.51, dtype=torch.float64)
         self.refractive_index_glass = nn.Parameter(refractive_index_glass, requires_grad=True)
         if prism_center is None:
@@ -493,7 +493,7 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
 
         self.prism = Prism(prism_size=self.prism_size, 
                         prism_center=self.prism_center, 
-                        prism_angles=self.prism_angles,
+                        prism_rotation_6d=self.prism_rotation_6d,
                         refractive_index_glass=self.refractive_index_glass,
                         )
         
@@ -524,7 +524,7 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
 
     def get_prism_corners(self):
         front_plane, reflecting_plane, top_plane = self.prism.get_planes(prism_center=self.prism.prism_center,
-                                                                         prism_angles=self.prism.prism_angles,)
+                                                                         prism_rotation_6d=self.prism_rotation_6d)
         front_plane_corners = front_plane.get_plane_corners()
         reflecting_plane_corners = reflecting_plane.get_plane_corners()
         top_plane_corners = top_plane.get_plane_corners()
@@ -865,11 +865,7 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
         fig, ax = self.prism.visualize_prism(fig, ax)
         emergent_ray1.t *= 25
         fig, ax = emergent_ray1.visualize(fig, ax, color_labels)
-        R_stereo_cam = get_rot_mat(
-            self.stereo_camera_angles[0],
-            self.stereo_camera_angles[1],
-            self.stereo_camera_angles[2],
-        )
+        R_stereo_cam = self.R_stereo_cam
         camera2 = self.get_stereo_camera(self.principal_point_pixel_cam_1,
                                 self.focal_length_cam_1,
                                 R_stereo_cam,
