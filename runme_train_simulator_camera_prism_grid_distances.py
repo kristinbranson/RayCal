@@ -172,7 +172,7 @@ def unfreeze_camera_parameters(camera):
 def unfreeze_stereocamera(arena):
     arena.focal_length_cam_1.requires_grad = True
     arena.principal_point_pixel_cam_1.requires_grad = True
-    arena.stereo_camera_angles.requires_grad = True
+    arena.stereo_camera_rotation_6d.requires_grad = True
     arena.stereocam_r1.requires_grad = True
 
 def unfreeze_prism_parameters_subset(prism):
@@ -251,7 +251,8 @@ plt.plot(
     linewidth=2,
 )
 
-R2 = arena.R_stereo_cam
+R_stereo_cam = arena.stereo_camera_rotation_6d.matrix()
+R2 = R_stereo_cam
 T2 = arena.T_stereo_cam
 camera2 = arena.get_stereo_camera(arena.principal_point_pixel_cam_1,
                             arena.focal_length_cam_1,
@@ -366,7 +367,7 @@ def train_two_cams(model, train_loader, criterion, plot=False):
                         recon_pixels_1_to_virtual, 
                         virtual_2D_cam_0.T).sum() + euclidean_distance(
                         recon_pixels_2_to_virtual, 
-                        virtual_2D_cam_1.T).sum(),
+                        virtual_2D_cam_1.T).sum()
                     ) / 4
                 
                 """overall_reprojection_loss = (euclidean_distance(
@@ -387,7 +388,6 @@ def train_two_cams(model, train_loader, criterion, plot=False):
                         recon_pixels_2,
                         label_2D_cam_1.T).sum()) / 4
                 else:
-                    print('kkkk')
                     overall_reprojection_loss = (euclidean_distance(
                         recon_pixels_1_from_virtual, 
                         label_2D_cam_0.T).sum() + euclidean_distance(
@@ -557,6 +557,7 @@ arena.to(device)
 pixels_virtual_two_cams = pixels_virtual_two_cams.to(device)
 
 
+
 # %% Training loop
 train_loss_array = []
 train_virtual_loss_array = []
@@ -581,7 +582,7 @@ best_loss = 1e100
 num_epochs = 1000
 
 plot = False
-arena.virtual_proj_prob_thresh = 0.05 # 5 percent chance of calculating virtual reprojection error and using it for backprop
+arena.virtual_proj_prob_thresh = 0.05 # probability of calculating virtual reprojection error and using it for backprop
 for epoch in tqdm(range(0, num_epochs)):
     if epoch == 75:
         change_lr(optimizer, lr=1e-2)
@@ -637,10 +638,11 @@ for epoch in tqdm(range(0, num_epochs)):
     writer.add_scalar('Loss/val_distortion_error', val_distortion_loss, epoch)
     writer.add_scalar('Parameter/prism/refractive_index_glass', arena.prism.refractive_index_glass, epoch)
 
+    prism_alpha, prism_beta, prism_gamma = arena.prism_rotation_6d.to_euler()
     writer.add_scalars('Parameter/prism_angles', {
-        'Angle0':arena.prism.prism_angles[0],
-         'Angle1':arena.prism.prism_angles[1],
-          'Angle2':arena.prism.prism_angles[2]},
+        'Angle0':prism_alpha,
+         'Angle1':prism_beta,
+          'Angle2':prism_gamma},
             epoch)
     writer.add_scalars('Parameter/prism_size', {
         'Size0':arena.prism.prism_size[0],

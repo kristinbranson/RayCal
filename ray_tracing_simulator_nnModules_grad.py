@@ -69,7 +69,7 @@ class Rotation6D(nn.Module):
         """Get approximate Euler angles (for debugging/visualization)"""
         R = self.matrix()
         euler = matrix_to_euler_angles(R.unsqueeze(0), "ZYX").squeeze(0)
-        return euler[0], euler[1], euler[2]  # alpha, beta, gamma
+        return euler[2], euler[1], euler[0]  # gamma, beta, alpha (because alpha is defined for X, beta for Y, gamma for Z)
     
     @classmethod
     def from_matrix(cls, rotation_matrix):
@@ -134,9 +134,35 @@ def rotz(angle):
                 torch.tensor(0.0, device=angle.device, dtype=torch.float64), 
                 torch.tensor(1.0, device=angle.device, dtype=torch.float64)])
     ])
-    
+
+
+def compare_rotation_times(ntrials=10000):
+    import time
+    starttime = time.perf_counter()
+    ntrials = 20000
+    for i in range(ntrials):
+        alpha = torch.rand(1)[0]
+        beta = torch.rand(1)[0]
+        gamma = torch.rand(1)[0]
+        #R1 = torch.mm(torch.mm(rotz(gamma), roty(beta)), rotx(alpha))
+        R2 = euler_angles_to_matrix(torch.tensor([gamma, beta, alpha], dtype=torch.float64), 'ZYX')
+    endtime = time.perf_counter()
+    print(f'Average time for euler_angles_to_matrix(): {(endtime - starttime) / ntrials}')
+    starttime = time.perf_counter()
+    ntrials = 20000
+    for i in range(ntrials):
+        alpha = torch.rand(1)[0]
+        beta = torch.rand(1)[0]
+        gamma = torch.rand(1)[0]
+        R1 = torch.mm(torch.mm(rotz(gamma), roty(beta)), rotx(alpha))
+        #R2 = euler_angles_to_matrix(torch.tensor([gamma, beta, alpha], dtype=torch.float64), 'ZYX')
+    endtime = time.perf_counter()
+    print(f'Average time for get_rot_mat(): {(endtime - starttime) / ntrials}')
+  
 def get_rot_mat(alpha, beta, gamma):
-        return torch.mm(torch.mm(rotz(gamma), roty(beta)), rotx(alpha)) # Rotation matrix
+        # First rotate
+        return euler_angles_to_matrix(torch.tensor([gamma, beta, alpha], dtype=torch.float64), "ZYX")
+        #return torch.mm(torch.mm(rotz(gamma), roty(beta)), rotx(alpha)) # Rotation matrix: this is 2x slower than euler_angles_to_matrix
 
 def closest_distance_from_point(point, ray):
     """
@@ -168,7 +194,6 @@ def closest_distance_from_point(point, ray):
 
     # Distances are the norms of the perpendicular vectors
     distances = perp_vectors.norm(dim=0)  # shape: (num_rays,)
-
     return distances
 
 
