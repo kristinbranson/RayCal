@@ -1,5 +1,5 @@
 # %% Imports
-from ray_tracing_simulator_nnModules_grad_6d_rotation import Prism, Ray, Plane, ReflectingPlane, RefractingPlane, Camera, visualize_camera_configuration, closest_point, rotx, get_rot_mat
+from ray_tracing_simulator_nnModules_grad import Prism, Ray, Plane, ReflectingPlane, RefractingPlane, Camera, visualize_camera_configuration, closest_point, rotx, get_rot_mat
 import matplotlib.pyplot as plt
 import numpy as np  
 import torch
@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader, random_split, Dataset
 torch.autograd.set_detect_anomaly(True)
 import datetime
 import time
-from arenas.prism_arenas_6d_rotation import Arena_reprojection_loss_two_cameras_prism_grid_distances
+from arenas.prism_arenas import Arena_reprojection_loss_two_cameras_prism_grid_distances
 from utils import euclidean_distance
 from torch.utils.tensorboard import SummaryWriter
 import argparse
