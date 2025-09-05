@@ -1,5 +1,5 @@
 # %% Imports
-from ray_tracing_simulator_nnModules_grad import Prism, Ray, Plane, ReflectingPlane, RefractingPlane, Camera, visualize_camera_configuration, closest_point, rotx, get_rot_mat
+from ray_tracing_simulator_nnModules_grad_6d_rotation import Prism, Ray, Plane, ReflectingPlane, RefractingPlane, Camera, visualize_camera_configuration, closest_point, rotx, get_rot_mat
 import matplotlib.pyplot as plt
 import numpy as np  
 import torch
@@ -12,11 +12,12 @@ from torch.utils.data import DataLoader, random_split, Dataset
 torch.autograd.set_detect_anomaly(True)
 import datetime
 import time
-from arenas.prism_arenas import Arena_reprojection_loss_two_cameras_prism_grid_distances
+from arenas.prism_arenas_6d_rotation import Arena_reprojection_loss_two_cameras_prism_grid_distances
 from utils import euclidean_distance
 from torch.utils.tensorboard import SummaryWriter
 import argparse
 import yaml
+import pdb
 
 #%% Dataloader
 class CalibrationDataset(Dataset):
@@ -34,50 +35,99 @@ class CalibrationDataset(Dataset):
         return self.data[idx], self.labels_2D[idx], self.labels_3D[idx], self.pairwise_distance[idx]
 
 
-#%% Load camera calibration results
-load_checkpoint = False
+#%% Parse input arguments
 parser = argparse.ArgumentParser()
 parser.add_argument("--exp_id", type=int, help="Experiment ID")
 args = parser.parse_args()
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(device)
-pi = torch.tensor(np.pi, dtype=torch.float64).to(device)
-
 exp_id = args.exp_id
-calibration_results_dir = f'/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/exp_{exp_id}/results/'
+
+#%% Load camera calibration results
+load_checkpoint = False
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cpu") # Empirically, CPU seems to work faster for optimization
+print(f'Device: {device}')
+
+
+#%% Continue to load camera calibration results
+datatype = torch.float64
+pi = torch.tensor(np.pi, dtype=datatype).to(device)
+calibration_results_dir = f'/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/exp_{exp_id}/results'
 calibration_results_file = 'dotted_grid_pairwise_data.mat'
 calibration_results_path = os.path.join(calibration_results_dir, calibration_results_file)
 prism_initialization_path = os.path.join(calibration_results_dir, 'prism_initialization.mat')
+prism_image_name = 'test_no_grid'
+if os.path.isfile(
+    os.path.join(
+    os.path.dirname(calibration_results_dir),
+    'calibration_grid_images',
+    f'{prism_image_name}_cam_0.bmp')
+    ):
+    prism_image_cam_0_path = os.path.join(
+    os.path.dirname(calibration_results_dir),
+    'calibration_grid_images',
+    f'{prism_image_name}_cam_0.bmp',
+    )
+else:
+    prism_image_cam_0_path = os.path.join(
+    os.path.dirname(calibration_results_dir),
+    'calibration_grid_images',
+    f'{prism_image_name}_cam_0.png'
+)
+if os.path.isfile(
+    os.path.join(
+    os.path.dirname(calibration_results_dir),
+    'calibration_grid_images',
+    f'{prism_image_name}_cam_1.bmp')
+    ):
+    prism_image_cam_1_path = os.path.join(
+    os.path.dirname(calibration_results_dir),
+    'calibration_grid_images',
+    f'{prism_image_name}_cam_1.bmp',
+    )
+else:
+    prism_image_cam_1_path = os.path.join(
+    os.path.dirname(calibration_results_dir),
+    'calibration_grid_images',
+    f'{prism_image_name}_cam_1.png',
+)
+prism_image_cam_0 = plt.imread(prism_image_cam_0_path)    
+prism_image_cam_1 = plt.imread(prism_image_cam_1_path)
 print('Loaded prism initialization data from {prism_initialization_path}')
 outputs_dir = 'outputs'
 os.makedirs(outputs_dir, exist_ok=True)
 now = datetime.datetime.now()
-model_checkpoint_dir = f'{outputs_dir}/model_checkpoints/exp_{exp_id}_{now.year}_{now.month}_{now.day}_{now.hour}_{now.minute}_{now.second}'
+
 if load_checkpoint:
-    model_checkpoint_dir = ''
-os.makedirs(model_checkpoint_dir, exist_ok=True)
+    model_checkpoint_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/refraction_model/calprism/outputs/model_checkpoints/exp_62_2025_9_4_12_12_48'
+    #model_checkpoint_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/refraction_model/calprism/outputs/model_checkpoints/exp_62_2025_9_4_12_12_48'
+else:
+    model_checkpoint_dir = f'{outputs_dir}/model_checkpoints/exp_{exp_id}_{now.year}_{now.month}_{now.day}_{now.hour}_{now.minute}_{now.second}'
+    os.makedirs(model_checkpoint_dir, exist_ok=True)
 
+num_points = -1
 mat = sio.loadmat(calibration_results_path)
-virtual_pixels_cam_0 = torch.tensor(mat['output_data_cam_02_pairwise'], dtype=torch.float64).T - 1.
-virtual_pixels_cam_1 = torch.tensor(mat['output_data_cam_13_pairwise'], dtype=torch.float64).T - 1.
-undistorted_real_pixels_cam_0 = torch.tensor(mat['output_data_cam_0_pairwise'], dtype=torch.float64).T - 1.
-undistorted_real_pixels_cam_1 = torch.tensor(mat['output_data_cam_1_pairwise'], dtype=torch.float64).T - 1.
-target_coordinates = torch.tensor(mat['worldPoints_pairwise'], dtype=torch.float64).T
-pairwise_distance = torch.tensor(mat['pairwise_distances'][:,0]).to(torch.float64)
+virtual_pixels_cam_0 = torch.tensor(mat['output_data_cam_02_pairwise'], dtype=datatype).T - 1.
+virtual_pixels_cam_1 = torch.tensor(mat['output_data_cam_13_pairwise'], dtype=datatype).T - 1.
+undistorted_real_pixels_cam_0 = torch.tensor(mat['output_data_cam_0_pairwise'], dtype=datatype).T - 1.
+undistorted_real_pixels_cam_1 = torch.tensor(mat['output_data_cam_1_pairwise'], dtype=datatype).T - 1.
+target_coordinates = torch.tensor(mat['worldPoints_pairwise'], dtype=datatype).T
+pairwise_distance = torch.tensor(mat['pairwise_distances'][:,0]).to(datatype)
+virtual_pixels_cam_0 = virtual_pixels_cam_0[:, :num_points]
+virtual_pixels_cam_1 = virtual_pixels_cam_1[:, :num_points]
+undistorted_real_pixels_cam_0 = undistorted_real_pixels_cam_0[:, :num_points]
+undistorted_real_pixels_cam_1 = undistorted_real_pixels_cam_1[:, :num_points]
+target_coordinates = target_coordinates[:, :num_points]
+pairwise_distance = pairwise_distance[:num_points]
+
 stereoParams = mat['stereoParams_export']
-K1 = torch.tensor(stereoParams['CameraParameters1K'][0,0]).to(torch.float64).to(device)
-K2 = torch.tensor(stereoParams['CameraParameters2K'][0,0]).to(torch.float64).to(device)
-R = torch.tensor(stereoParams['RotationOfCamera2'][0,0]).to(torch.float64).to(device)
-T = torch.tensor(stereoParams['TranslationOfCamera2'][0,0]).to(torch.float64).T.to(device) + 0.
+K1 = torch.tensor(stereoParams['CameraParameters1K'][0,0]).to(datatype).to(device)
+K2 = torch.tensor(stereoParams['CameraParameters2K'][0,0]).to(datatype).to(device)
+R = torch.tensor(stereoParams['RotationOfCamera2'][0,0]).to(datatype).to(device)
+T = torch.tensor(stereoParams['TranslationOfCamera2'][0,0]).to(datatype).T.to(device) + 0.
 
-#principal_point_pixel_cam_0 = torch.tensor([640., 512.]).to(torch.float64) 
-#principal_point_pixel_cam_1 = torch.tensor([640., 512.]).to(torch.float64) 
+principal_point_pixel_cam_0 = torch.tensor([K1[0,2] - 1, K1[1,2] - 1], dtype=datatype).to(device)
+principal_point_pixel_cam_1 = torch.tensor([K2[0,2] - 1, K2[1,2] - 1], dtype=datatype).to(device)
 
-principal_point_pixel_cam_0 = torch.tensor([K1[0,2] - 1, K1[1,2] - 1], dtype=torch.float64).to(device)
-principal_point_pixel_cam_1 = torch.tensor([K2[0,2] - 1, K2[1,2] - 1], dtype=torch.float64).to(device)
-
-#focal_length_cam_1 = 5206. 
-#focal_length_cam_2 = 5206. 
 
 focal_length_cam_1 = (K1[0,0] + K1[1,1]) /  2
 focal_length_cam_2 = (K2[0,0] + K2[1,1]) /  2
@@ -135,61 +185,14 @@ def unfreeze_all_parameters(arena):
             param.requires_grad = True
 
 
-#%% Prism corners third plane 
-prism_annotated_face = 'first'
-prism_corners_path = '/groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/prism_corners_third_plane.mat'
-#prism_corners_path = f'{calibration_results_dir}/prism_corners_{prism_annotated_face}_plane.mat'
-prism_corners = sio.loadmat(prism_corners_path)['worldPoints']
-prism3_axes = torch.zeros(3,3).to(torch.float64).to(device)
-prism3_axes[:,1] = torch.stack(
-    (torch.tensor(prism_corners[1,:] - prism_corners[0,:], dtype=torch.float64).to(device),
-    )
-).mean(dim=0)
-prism3_axes[:,2] = torch.stack(
-    (torch.tensor(prism_corners[3,:] - prism_corners[0,:], dtype=torch.float64).to(device),
-     torch.tensor(prism_corners[2,:] - prism_corners[1,:], dtype=torch.float64).to(device)
-     )
-).mean(dim=0)
-
-if prism_annotated_face == 'third':
-    prism3_axes[:,0] = torch.linalg.cross(prism3_axes[:,1], prism3_axes[:,2])
-    prism3_axes = prism3_axes / torch.linalg.norm(prism3_axes, dim=0)
-    prism1_axes = torch.mm(rotx(pi/2), prism3_axes)
-
-    prism_a = 20.
-    prism_b = 20.
-    prism3_center = torch.tensor(prism_corners, dtype=torch.float64).mean(dim=0).to(device)
-    prism1_center = prism3_center + prism_b/2 * prism1_axes[:,0] - prism_b/2 * prism1_axes[:,2] 
-
-elif prism_annotated_face == 'first':
-    prism1_axes = torch.zeros(3,3).to(torch.float64)
-    prism1_axes[:,1] = torch.stack(
-    (torch.tensor(prism_corners[1,:] - prism_corners[0,:], dtype=torch.float64).to(device),
-    )
-    ).mean(dim=0)
-    prism1_axes[:,2] = torch.stack(
-    (torch.tensor(prism_corners[3,:] - prism_corners[0,:], dtype=torch.float64).to(device),
-     torch.tensor(prism_corners[2,:] - prism_corners[1,:], dtype=torch.float64).to(device)
-     )
-    ).mean(dim=0)
-    prism1_center = torch.tensor(prism_corners, dtype=torch.float64).mean(dim=0).to(device)
-    prism1_axes[:,0] = torch.linalg.cross(prism1_axes[:,1], prism1_axes[:,2])
-    prism1_axes = prism1_axes / torch.linalg.norm(prism1_axes, dim=0)
-
-plane = Plane(axes=prism1_axes)
-prism_angles = torch.tensor([plane.alpha, plane.beta, plane.gamma], dtype=torch.float64).to(device)
-prism_angles = torch.tensor([-1.8710,  1.4078, -1.9315], dtype=torch.float64).to(device) # Some old optimization results
-prism1_center[2] = 250.
-
 #%% Initialize an Arena instance
-#prism_angles = torch.tensor([-1.5341, 1.3650, -1.5638], dtype=torch.float64)
-#prism_center = torch.tensor([-6.5058, -5.6897, 149.0993], dtype=torch.float64)
 prism_initializations = sio.loadmat(prism_initialization_path)
-prism_center = torch.tensor(prism_initializations['location_prism']).to(torch.float64).T.to(device)
-prism_axes = torch.tensor(prism_initializations['axes_prism']).to(torch.float64).to(device)
+prism_center = torch.tensor(prism_initializations['location_prism']).to(datatype).T.to(device)
+prism_axes = torch.tensor(prism_initializations['axes_prism']).to(datatype).to(device)
 plane = Plane(axes=prism_axes)
-prism_angles = torch.tensor([plane.alpha, plane.beta, plane.gamma], dtype=torch.float64).to(device)
-
+prism_angles = torch.tensor([plane.alpha, plane.beta, plane.gamma], dtype=datatype).to(device)
+prism_center[0] += 2.
+#prism_center[1] -= 1.
 arena = Arena_reprojection_loss_two_cameras_prism_grid_distances(principal_point_pixel_cam_0,
             principal_point_pixel_cam_1, 
             focal_length_cam_1, 
@@ -203,6 +206,96 @@ pixels_real_two_cams = torch.vstack((undistorted_real_pixels_cam_0, undistorted_
 freeze_camera_parameters(arena.camera1)
 freeze_stereocamera(arena)
 freeze_prism_parameters_subset(arena)
+
+
+if load_checkpoint:
+    PATH = f'{model_checkpoint_dir}/best_checkpoint.pth'
+    checkpoint = torch.load(PATH, weights_only=True)
+    arena.load_state_dict(checkpoint['model_state_dict'],
+                          strict=False)
+
+front_corner, hypotenuse_corner, top_corner = arena.get_prism_corners()
+R1 = torch.eye(3, 3).to(device=pixels_virtual_two_cams.device, dtype=datatype).to(device)
+T1 = torch.zeros(3, 1).to(device=pixels_virtual_two_cams.device, dtype=datatype).to(device)
+front_corner_2D = arena.camera1.reproject(front_corner, R1, T1).to(device)
+front_corner_2D = arena.camera1.distort_pixels_classical(
+    front_corner_2D,
+    arena.radial_dist_coeffs_cam_0,
+)
+hypotenuse_corner_2D = arena.camera1.reproject(hypotenuse_corner, R1, T1).to(device)
+hypotenuse_corner_2D = arena.camera1.distort_pixels_classical(
+    hypotenuse_corner_2D,
+    arena.radial_dist_coeffs_cam_0,
+)
+
+top_corner_2D = arena.camera1.reproject(top_corner, R1, T1).to(device)
+top_corner_2D = arena.camera1.distort_pixels_classical(
+    top_corner_2D,
+    arena.radial_dist_coeffs_cam_0,
+)
+plt.imshow(prism_image_cam_0, cmap='gray')
+plt.gca().axis('off')
+plt.plot(
+    front_corner_2D[0][[0,1,2,3,0]].cpu().detach().numpy(), 
+    front_corner_2D[1][[0,1,2,3,0]].cpu().detach().numpy(),
+    linewidth=2,
+)
+plt.plot(
+    hypotenuse_corner_2D[0][[0,1,2,3,0]].cpu().detach().numpy(), 
+    hypotenuse_corner_2D[1][[0,1,2,3,0]].cpu().detach().numpy(),
+    linewidth=2,
+)
+plt.plot(
+    top_corner_2D[0][[0,1,2,3,0]].cpu().detach().numpy(), 
+    top_corner_2D[1][[0,1,2,3,0]].cpu().detach().numpy(),
+    linewidth=2,
+)
+
+R2 = get_rot_mat(
+            arena.stereo_camera_angles[0],
+            arena.stereo_camera_angles[1],
+            arena.stereo_camera_angles[2],
+            )
+T2 = arena.T_stereo_cam
+camera2 = arena.get_stereo_camera(arena.principal_point_pixel_cam_1,
+                            arena.focal_length_cam_1,
+                            R2,
+                            arena.T_stereo_cam,
+                            r1=arena.stereocam_r1,
+                            radial_dist_coeffs=arena.radial_dist_coeffs_cam_1)
+front_corner_2D = camera2.reproject(front_corner, R2, T2).to(device)
+front_corner_2D = camera2.distort_pixels_classical(
+    front_corner_2D,
+    arena.radial_dist_coeffs_cam_1,
+)
+hypotenuse_corner_2D = camera2.reproject(hypotenuse_corner, R2, T2).to(device)
+hypotenuse_corner_2D = camera2.distort_pixels_classical(
+    hypotenuse_corner_2D,
+    arena.radial_dist_coeffs_cam_1,
+)
+top_corner_2D = camera2.reproject(top_corner, R2, T2).to(device)
+top_corner_2D = camera2.distort_pixels_classical(
+    top_corner_2D,
+    arena.radial_dist_coeffs_cam_1,
+)
+plt.figure()
+plt.imshow(prism_image_cam_1, cmap='gray')
+plt.plot(
+    front_corner_2D[0][[0,1,2,3,0]].cpu().detach().numpy(), 
+    front_corner_2D[1][[0,1,2,3,0]].cpu().detach().numpy(),
+    linewidth=2,
+)
+plt.plot(
+    hypotenuse_corner_2D[0][[0,1,2,3,0]].cpu().detach().numpy(), 
+    hypotenuse_corner_2D[1][[0,1,2,3,0]].cpu().detach().numpy(),
+    linewidth=2,
+)
+plt.plot(
+    top_corner_2D[0][[0,1,2,3,0]].cpu().detach().numpy(), 
+    top_corner_2D[1][[0,1,2,3,0]].cpu().detach().numpy(),
+    linewidth=2,
+)
+
 
 #%% Training and validation functions
 def train_two_cams(model, train_loader, criterion, plot=False):    
@@ -231,11 +324,13 @@ def train_two_cams(model, train_loader, criterion, plot=False):
             output = model(
                 input.T,
                 label_2D.T)
-            recon_3D, closest_distance, recon_pixels_1, recon_pixels_2, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2, pairwise_distance_recon = output['recon_3D'], output['closest_distance'], output['recon_pixels_1'], output['recon_pixels_2'], output['distortion_penalty_cam_0'], output['distortion_penalty_cam_1'], output['intersection_penalty_1'], output['intersection_penalty_2'], output['pairwise_distance']
+            recon_3D, closest_distance, recon_pixels_1, recon_pixels_2, recon_pixels_1_from_virtual, recon_pixels_2_from_virtual, recon_pixels_1_to_virtual, recon_pixels_2_to_virtual, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2, pairwise_distance_recon = output['recon_3D'], output['closest_distance'], output['recon_pixels_1'], output['recon_pixels_2'], output['recon_pixels_0_virtual'], output['recon_pixels_1_virtual'], output['recon_pixels_1_to_virtual'], output['recon_pixels_2_to_virtual'], output['distortion_penalty_cam_0'], output['distortion_penalty_cam_1'], output['intersection_penalty_1'], output['intersection_penalty_2'], output['pairwise_distance']
             d_pairwise_distance = (pairwise_distance_recon - pairwise_distance_batch)
             pairwise_distance_loss = torch.abs(d_pairwise_distance).sum() # Sum of root squared error
             label_2D_cam_0 = torch.vstack((label_2D[:,:2], label_2D[:,2:4]))
             label_2D_cam_1 = torch.vstack((label_2D[:,4:6], label_2D[:,6:8]))
+            virtual_2D_cam_0 = torch.vstack((input[:,:2], input[:,2:4]))
+            virtual_2D_cam_1 = torch.vstack((input[:,4:6], input[:,6:8]))
             stacked_label_2D = torch.vstack((label_2D[:,:label_2D.shape[1] // 2], label_2D[:,label_2D.shape[1] // 2:]))
             stacked_label_3D = torch.vstack((label_3D[:,:label_3D.shape[1] // 2], label_3D[:,label_3D.shape[1] // 2:]))
             if plot:                
@@ -249,7 +344,7 @@ def train_two_cams(model, train_loader, criterion, plot=False):
                 )
                 plt.scatter(
                     label_2D_cam_0.T[0,rand_ind].cpu().detach().numpy(),
-                    label_2D_cam_1.T[1,rand_ind].cpu().detach().numpy(),
+                    label_2D_cam_0.T[1,rand_ind].cpu().detach().numpy(),
                     s=0.5,
                     c='g',
                 )
@@ -267,26 +362,41 @@ def train_two_cams(model, train_loader, criterion, plot=False):
                     c='g',
                 )
 
-            # Ground truth pixel error calculated using triangulation of refracted pixels
-            """
-            recon_virtual_loss = (euclidean_distance(
-                recon_distorted_virtual_pixels_1,
-                label_2D_cam_0.T).sum() + euclidean_distance(
-                recon_distorted_virtual_pixels_2, 
-                label_2D_cam_1.T).sum()) / 4
 
-            recon_real_loss = (euclidean_distance(
-                recon_distorted_real_pixels_1, 
-                label_2D_cam_0.T).sum() + euclidean_distance(
-                recon_distorted_real_pixels_2, 
-                label_2D_cam_1.T).sum()) / 4
-            """
-
-            overall_reprojection_loss = (euclidean_distance(
-                recon_pixels_1, 
-                label_2D_cam_0.T).sum() + euclidean_distance(
-                recon_pixels_2,
-                label_2D_cam_1.T).sum()) / 4
+            if recon_pixels_1_to_virtual is not None and recon_pixels_2_to_virtual is not None:
+                print('Calculated virtual reprojection error')
+                
+                overall_reprojection_loss = (euclidean_distance(
+                        recon_pixels_1_to_virtual, 
+                        virtual_2D_cam_0.T).sum() + euclidean_distance(
+                        recon_pixels_2_to_virtual, 
+                        virtual_2D_cam_1.T).sum(),
+                    ) / 4
+                
+                """overall_reprojection_loss = (euclidean_distance(
+                        recon_pixels_1_to_virtual, 
+                        virtual_2D_cam_0.T).sum() + euclidean_distance(
+                        recon_pixels_2_to_virtual, 
+                        virtual_2D_cam_1.T).sum() + euclidean_distance(
+                        recon_pixels_1,
+                        label_2D_cam_0.T).sum() + euclidean_distance(
+                        recon_pixels_2,
+                        label_2D_cam_1.T).sum()
+                    ) / 8"""
+            else:
+                if torch.rand(1) < .5:
+                    overall_reprojection_loss = (euclidean_distance(
+                        recon_pixels_1, 
+                        label_2D_cam_0.T).sum() + euclidean_distance(
+                        recon_pixels_2,
+                        label_2D_cam_1.T).sum()) / 4
+                else:
+                    print('kkkk')
+                    overall_reprojection_loss = (euclidean_distance(
+                        recon_pixels_1_from_virtual, 
+                        label_2D_cam_0.T).sum() + euclidean_distance(
+                        recon_pixels_2_from_virtual,
+                        label_2D_cam_1.T).sum()) / 4
             
             triangulation_loss = euclidean_distance(
                                     recon_3D, stacked_label_3D.T
@@ -328,12 +438,16 @@ def validate(model, val_loader, criterion):
     pairwise_dist_loss = 0.
     with torch.no_grad():
         for i, (input, label_2D, label_3D, pairwise_distance_batch) in enumerate(val_loader):
+            # input: virtual pixels from two cameras stacked
+            # label_2D: real pixels from two cameras stacked
+            # label_3D: target 3D coordinates stacked
+            # pairwise_distance_batch: pairwise distances between points in the batch
             input = input.to(device)
             label_2D = label_2D.to(device)
             label_3D = label_3D.to(device)
             pairwise_distance_batch = pairwise_distance_batch.to(device)
             output = model(input.T, label_2D.T)
-            recon_3D, closest_distance, recon_pixels_1, recon_pixels_2, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2, pairwise_distance_recon = output['recon_3D'], output['closest_distance'], output['recon_pixels_1'], output['recon_pixels_2'], output['distortion_penalty_cam_0'], output['distortion_penalty_cam_1'], output['intersection_penalty_1'], output['intersection_penalty_2'], output['pairwise_distance']
+            recon_3D, closest_distance, recon_pixels_1, recon_pixels_2, recon_pixels_1_to_virtual, recon_pixels_2_to_virtual, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2, pairwise_distance_recon = output['recon_3D'], output['closest_distance'], output['recon_pixels_1'], output['recon_pixels_2'], output['recon_pixels_1_to_virtual'], output['recon_pixels_2_to_virtual'], output['distortion_penalty_cam_0'], output['distortion_penalty_cam_1'], output['intersection_penalty_1'], output['intersection_penalty_2'], output['pairwise_distance']
             d_pairwise_distance = (pairwise_distance_recon - pairwise_distance_batch)
             pairwise_distance_loss = torch.abs(d_pairwise_distance).sum() # Sum of root squared error
 
@@ -344,6 +458,8 @@ def validate(model, val_loader, criterion):
 
             label_2D_cam_0 = torch.vstack((label_2D[:,:2], label_2D[:,2:4]))
             label_2D_cam_1 = torch.vstack((label_2D[:,4:6], label_2D[:,6:8]))
+            virtual_2D_cam_0 = torch.vstack((input[:,:2], input[:,2:4]))
+            virtual_2D_cam_1 = torch.vstack((input[:,4:6], input[:,6:8]))
             stacked_label_3D = torch.vstack((label_3D[:,:label_3D.shape[1] // 2], label_3D[:,label_3D.shape[1] // 2:]))
 
             """
@@ -359,8 +475,22 @@ def validate(model, val_loader, criterion):
                 recon_distorted_real_pixels_2, 
                 label_2D_cam_1.T).sum()) / 4
             """
+            
+            if recon_pixels_1_to_virtual is not None and recon_pixels_2_to_virtual is not None:
+                print('Calculated virtual reprojection error')
+                overall_reprojection_loss = (euclidean_distance(
+                        recon_pixels_1_to_virtual, 
+                        virtual_2D_cam_0.T).sum() + euclidean_distance(
+                        recon_pixels_2_to_virtual, 
+                        virtual_2D_cam_1.T).sum() + euclidean_distance(
+                        recon_pixels_1,
+                        label_2D_cam_0.T).sum() + euclidean_distance(
+                        recon_pixels_2,
+                        label_2D_cam_1.T).sum()
+                    ) / 8
 
-            overall_reprojection_loss = (euclidean_distance(
+            else:
+                overall_reprojection_loss = (euclidean_distance(
                 recon_pixels_1, 
                 label_2D_cam_0.T).sum() + euclidean_distance(
                 recon_pixels_2,
@@ -451,10 +581,11 @@ closest_distance_train_loss_array = []
 gt_val_loss_array = []
 closest_distance_val_loss_array = []
 best_loss = 1e100
-#%%
+
 num_epochs = 1000
 
 plot = False
+arena.virtual_proj_prob_thresh = 0.05 # 5 percent chance of calculating virtual reprojection error and using it for backprop
 for epoch in tqdm(range(0, num_epochs)):
     if epoch == 75:
         change_lr(optimizer, lr=1e-2)
@@ -567,13 +698,15 @@ for epoch in tqdm(range(0, num_epochs)):
     closest_distance_val_loss_array.append(val_closest_dist_loss)
 
 # %% Validate the model
+
 PATH = f'{model_checkpoint_dir}/best_checkpoint.pth'
 checkpoint = torch.load(PATH, weights_only=True)
-arena.load_state_dict(checkpoint['model_state_dict'])
+arena.load_state_dict(checkpoint['model_state_dict'],strict=False)
+arena.virtual_proj_prob_thresh = 1.
 # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
 output = arena(pixels_virtual_two_cams_test, pixels_real_two_cams_test)
-recon_3D_test, closest_dist_test, recon_pixels_1, recon_pixels_2, recon_3D_real, real_3D_virtual, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2, pairwise_distance_test_ = output['recon_3D'], output['closest_distance'], output['recon_pixels_1'], output['recon_pixels_2'], output['recon_3D_real'], output['recon_3D_virtual'], output['distortion_penalty_cam_0'], output['distortion_penalty_cam_1'], output['intersection_penalty_1'], output['intersection_penalty_2'], output['pairwise_distance']
+recon_3D_test, closest_dist_test, recon_pixels_1, recon_pixels_2, recon_pixels_1_to_virtual, recon_pixels_2_to_virtual, recon_3D_real, real_3D_virtual, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2, pairwise_distance_test_ = output['recon_3D'], output['closest_distance'], output['recon_pixels_1'], output['recon_pixels_2'], output['recon_pixels_1_to_virtual'], output['recon_pixels_2_to_virtual'], output['recon_3D_real'], output['recon_3D_virtual'], output['distortion_penalty_cam_0'], output['distortion_penalty_cam_1'], output['intersection_penalty_1'], output['intersection_penalty_2'], output['pairwise_distance']
 pairwise_distance_loss = torch.abs(pairwise_distance_test_ - pairwise_distance_test).mean()
 target_coordinates_test_stacked = torch.hstack((target_coordinates_test[:3,:], target_coordinates_test[3:,:]))
 triangulation_loss = euclidean_distance(
@@ -599,8 +732,19 @@ reprojection_loss_1 = euclidean_distance(
 reprojection_loss_2 = euclidean_distance(
     recon_pixels_2, pixels_real_cam_1_test_stacked
 )
-
 print(f'Reprojection error for two cameras: {reprojection_loss_1.mean()}, {reprojection_loss_2.mean()}')
+
+if (recon_pixels_1_to_virtual is not None) and (recon_pixels_2_to_virtual is not None):
+    print('Calculated virtual reprojection error')
+    pixels_virtual_cam_0_test_stacked = torch.hstack((pixels_virtual_two_cams_test[:2,:], pixels_virtual_two_cams_test[2:4,:]))
+    pixels_virtual_cam_1_test_stacked = torch.hstack((pixels_virtual_two_cams_test[4:6,:], pixels_virtual_two_cams_test[6:8,:]))
+    reprojection_loss_1_to_virtual = euclidean_distance(
+        recon_pixels_1_to_virtual, pixels_virtual_cam_0_test_stacked
+    )
+    reprojection_loss_2_to_virtual = euclidean_distance(
+        recon_pixels_2_to_virtual, pixels_virtual_cam_1_test_stacked
+    )
+    print(f'Reprojection error for two virtual cameras: {reprojection_loss_1_to_virtual.mean()}, {reprojection_loss_2_to_virtual.mean()}')
 
 plt.figure(figsize=(15,15))
 plt.scatter(
@@ -625,7 +769,32 @@ ax.set_xticklabels(ax.get_xticks(), fontsize=18)
 ax.set_yticklabels(ax.get_yticks(), fontsize=18)
 ax.set_title(f'Reprojection error: {reprojection_loss_1.mean():.2f} pixels', fontsize=16)
 plt.legend(fontsize=18)
-plt.savefig(f'{model_checkpoint_dir}/reprojection_loss.png')
+plt.savefig(f'{model_checkpoint_dir}/reprojection_loss_1.png')
+
+plt.figure(figsize=(15,15))
+plt.scatter(
+    recon_pixels_2[0,:].cpu().detach().numpy(),
+    recon_pixels_2[1,:].cpu().detach().numpy(),
+    color='g',
+    marker='o',
+    label='Estimate',
+)
+plt.scatter(
+    pixels_real_cam_1_test_stacked[0,:].cpu().detach().numpy(),
+    pixels_real_cam_1_test_stacked[1,:].cpu().detach().numpy(),
+    color='r',
+    marker='x',
+    label='Ground truth',
+)
+ax = plt.gca()
+ax.set_aspect('equal')
+ax.set_xlabel('X (pixels)', fontsize=22)
+ax.set_ylabel('Y (pixels)', fontsize=22)
+ax.set_xticklabels(ax.get_xticks(), fontsize=18)
+ax.set_yticklabels(ax.get_yticks(), fontsize=18)
+ax.set_title(f'Reprojection error: {reprojection_loss_2.mean():.2f} pixels', fontsize=16)
+plt.legend(fontsize=18)
+plt.savefig(f'{model_checkpoint_dir}/reprojection_loss_2.png')
 
 
 #%%
@@ -646,6 +815,22 @@ ax.scatter(
     color='g',
     s=5,
     label='Estimate',
+)
+front_corner, hypotenuse_corner, top_corner = arena.get_prism_corners()
+ax.plot(
+    front_corner[0][[0,1,2,3,0]].cpu().detach().numpy(), 
+    front_corner[1][[0,1,2,3,0]].cpu().detach().numpy(),
+    front_corner[2][[0,1,2,3,0]].cpu().detach().numpy(),
+)
+ax.plot(
+    hypotenuse_corner[0][[0,1,2,3,0]].cpu().detach().numpy(),
+    hypotenuse_corner[1][[0,1,2,3,0]].cpu().detach().numpy(),
+    hypotenuse_corner[2][[0,1,2,3,0]].cpu().detach().numpy(),
+)
+ax.plot(
+    top_corner[0][[0,1,2,3,0]].cpu().detach().numpy(),
+    top_corner[1][[0,1,2,3,0]].cpu().detach().numpy(),
+    top_corner[2][[0,1,2,3,0]].cpu().detach().numpy(),
 )
 ax.set_xlabel('X (mm)', fontsize=22)
 ax.set_ylabel('Y (mm)', fontsize=22)

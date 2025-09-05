@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from ray_tracing_simulator_nnModules_grad import Prism, Ray, Plane, ReflectingPlane, RefractingPlane, EfficientCamera, visualize_camera_configuration, closest_point, rotx, get_rot_mat
+from ray_tracing_simulator_nnModules_grad_6d_rotation import Prism, Ray, Plane, ReflectingPlane, RefractingPlane, EfficientCamera, visualize_camera_configuration, closest_point, rotx, get_rot_mat, Rotation6D
 from utils import euclidean_distance, rotation_matrix_to_quaternion
 pi = torch.tensor(np.pi, dtype=torch.float64)
 import math
@@ -463,16 +463,25 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
         self.R_stereo_cam = R_stereo_cam
         self.T_stereo_cam = nn.Parameter(T_stereo_cam, requires_grad=True)
         stereo_alpha, stereo_beta, stereo_gamma = self.get_stereo_camera_angles(R_stereo_cam)
-        self.stereo_camera_angles = nn.Parameter(
-                                                torch.tensor([stereo_alpha, stereo_beta, stereo_gamma], 
-                                                             dtype=torch.float64,
-                                                             device=R_stereo_cam.device),
-                                                requires_grad=True
-                                                )
+        self.stereo_camera_rotation_6d = Rotation6D(
+                stereo_alpha,
+                stereo_beta,
+                stereo_gamma
+                )
+        #self.stereo_camera_angles = nn.Parameter(
+        #                                        torch.tensor([stereo_alpha, stereo_beta, stereo_gamma], 
+        #                                                     dtype=torch.float64,
+        #                                                     device=R_stereo_cam.device),
+        #                                        requires_grad=True
+        #                                        ) # Deprecated
 
 
         # Prism initialization
         self.prism_angles = nn.Parameter(prism_angles, requires_grad=True)
+        self.prism_rotation_6d = Rotation6D(prism_angles[0],
+                                            prism_angles[1],
+                                            prism_angles[2])
+        print(self.prism_rotation_6d)
         refractive_index_glass = torch.tensor(1.51, dtype=torch.float64)
         self.refractive_index_glass = nn.Parameter(refractive_index_glass, requires_grad=True)
         if prism_center is None:
@@ -525,15 +534,16 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
     def forward(self, pixels_virtual_two_cams, pixels_real_two_cams):
         self.prism = Prism(prism_size=self.prism_size, 
                         prism_center=self.prism_center, 
-                        prism_angles=self.prism_angles,
+                        prism_rotation_6d=self.prism_rotation_6d,
                         refractive_index_glass=self.refractive_index_glass,
                         )
-
-        R_stereo_cam = get_rot_mat(
-            self.stereo_camera_angles[0],
-            self.stereo_camera_angles[1],
-            self.stereo_camera_angles[2],
-            )
+        
+        R_stereo_cam = self.stereo_camera_rotation_6d.matrix()
+        #R_stereo_cam = get_rot_mat(
+        #    self.stereo_camera_angles[0],
+        #    self.stereo_camera_angles[1],
+        #    self.stereo_camera_angles[2],
+        #    )
         R1 = torch.eye(3, 3).to(device=pixels_virtual_two_cams.device, dtype=torch.float64)
         T1 = torch.zeros(3, 1).to(device=pixels_virtual_two_cams.device, dtype=torch.float64)
         R2 = R_stereo_cam
