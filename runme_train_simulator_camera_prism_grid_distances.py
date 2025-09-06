@@ -3,6 +3,14 @@ from ray_tracing_simulator_nnModules_grad import Prism, Ray, Plane, ReflectingPl
 import matplotlib.pyplot as plt
 import numpy as np  
 import torch
+import random
+seed = 42
+# Python random
+random.seed(seed)
+# NumPy random
+np.random.seed(seed)
+# PyTorch random
+torch.manual_seed(seed)
 import scipy.io as sio
 import os
 import torch.optim as optim
@@ -191,7 +199,7 @@ prism_center = torch.tensor(prism_initializations['location_prism']).to(datatype
 prism_axes = torch.tensor(prism_initializations['axes_prism']).to(datatype).to(device)
 plane = Plane(axes=prism_axes)
 prism_angles = torch.tensor([plane.alpha, plane.beta, plane.gamma], dtype=datatype).to(device)
-prism_center[0] += 2.
+prism_center[0] += 1.
 #prism_center[1] -= 1.
 arena = Arena_reprojection_loss_two_cameras_prism_grid_distances(principal_point_pixel_cam_0,
             principal_point_pixel_cam_1, 
@@ -520,6 +528,25 @@ def validate(model, val_loader, criterion):
 #%% Visualize arena initialization
 arena.visualize(pixels_virtual_two_cams.to(device), color_labels=True)
 #plt.savefig(f'{outputs_dir}/initialized_arena.png')
+output = arena(
+    pixels_virtual_two_cams.to(device),
+    pixels_real_two_cams.to(device)
+)
+recon_3D, closest_distance, recon_pixels_1, recon_pixels_2, pairwise_distance_ = output['recon_3D'], output['closest_distance'], output['recon_pixels_1'], output['recon_pixels_2'], output['pairwise_distance']
+
+pairwise_distance_loss = torch.abs(pairwise_distance_ - pairwise_distance).mean()
+pixels_real_cam_0_test_stacked = torch.hstack((pixels_real_two_cams[:2,:], pixels_real_two_cams[2:4,:]))
+pixels_real_cam_1_test_stacked = torch.hstack((pixels_real_two_cams[4:6,:], pixels_real_two_cams[6:8,:]))
+recon_real_loss = (euclidean_distance(
+                recon_pixels_1, 
+                pixels_real_cam_0_test_stacked).mean() + euclidean_distance(
+                recon_pixels_2, 
+                pixels_real_cam_1_test_stacked).mean()) / 2
+target_coordinates_stacked = torch.hstack((target_coordinates[:3,:], target_coordinates[3:,:]))
+triangulation_loss = euclidean_distance(
+                        recon_3D, target_coordinates_stacked
+                    ).mean()    
+print(f'Initial real pixel reprojection error: {recon_real_loss}, initial closest distance: {closest_distance.mean()}, initial pairwise distance error: {pairwise_distance_loss}')
 
 
 #%% Training setup
