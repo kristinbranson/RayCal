@@ -166,7 +166,7 @@ def freeze_individual_planes(prism):
 def freeze_stereocamera(arena):
     arena.focal_length_cam_1.requires_grad = False
     arena.principal_point_pixel_cam_1.requires_grad = False
-    arena.stereo_camera_rotation_6d.requires_grad = False
+    arena.stereo_camera_rotation_6d.rotation_6d.requires_grad = False
     arena.stereocam_r1.requires_grad = False
 
 def freeze_prism_parameters_subset(arena):
