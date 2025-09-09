@@ -1088,8 +1088,14 @@ class EfficientCamera(Plane, nn.Module):
             pixels_undistorted_new = pixels_distorted / radial_distortion
             
             # Check for convergence (Only look at non-NaN values)
-            if torch.max(torch.abs(pixels_undistorted_new[nan_mask] - pixels_undistorted[nan_mask])) < tolerance:
-                success = True
+            diff = pixels_undistorted_new[nan_mask] - pixels_undistorted[nan_mask]
+            if diff.numel() > 0 and torch.max(torch.abs(diff)) < tolerance:
+                if torch.max(torch.abs(pixels_undistorted_new[nan_mask] - pixels_undistorted[nan_mask])) < tolerance:
+                    success = True
+                    break
+            else:
+                # nan_mask has filtered out all elements. Break
+                success = True # Since success flag is only used to check convergence. Detecting nans is not failure to converge
                 break
             # Update for the next iteration
             pixels_undistorted = pixels_undistorted_new
