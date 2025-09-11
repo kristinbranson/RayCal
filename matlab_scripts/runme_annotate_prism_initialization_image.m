@@ -5,7 +5,7 @@ analyze_all_cams = false;
 tilted_cameras = true;
 waitTimeBetweenImages = 0;
 % dataDir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/prism_new_led/';
-% exp_id = 61;
+% exp_id = 36;
 exp_root_folder = dataDir;
 results_folder = [exp_root_folder, '/exp_', num2str(exp_id), '/results', cam_suffix, '/'];
 mkdir(results_folder)
@@ -52,10 +52,10 @@ worldPoints = [worldPoints, zeros(size(worldPoints,1), 1)];
 %% Manual annotations
 % Initialize parameters
 num_cameras = 2 * length(cam_names); % Reflections double the number of cameras available
-if exist([calibration_grid_folder, 'initialization.png'])
-    im = imread([calibration_grid_folder, 'initialization.png']);
-elseif exist([calibration_grid_folder, 'initialization.bmp'])
-    im = imread([calibration_grid_folder, 'initialization.bmp']);
+if exist([calibration_grid_folder, 'initialization_cam_0.png'])
+    im = imread([calibration_grid_folder, 'initialization_cam_0.png']);
+elseif exist([calibration_grid_folder, 'initialization_cam_0.bmp'])
+    im = imread([calibration_grid_folder, 'initialization_cam_0.bmp']);
 end
 
 for cam_id = cam_ids
@@ -91,12 +91,7 @@ for cam_id = cam_ids
     % Save all {num_point} coordinates for the grid orientation and
     % camera as a mat file
 %         save([annotations_folder, 'im_', num2str(im_id), '_cam_', num2str(cam_id), '.mat'], 'im_calibration_grid')
-
-    J = insertText(im,imagePoints_r,1:size(imagePoints_r,1), 'FontSize', 12, 'BoxOpacity', 0);
-    J = insertMarker(J,imagePoints_r, 'x', 'color', 'green', Size=6);
-    imshow(J)
-    title("Detected a Circle Grid of Dimensions " + mat2str(num_points))
-    drawnow
+    
 end
 
 %% Get camera pose wrt the grid
@@ -158,15 +153,77 @@ end
 grid_location = mean(worldPoints_rot, 1); % Center of the grid
 
 %% Compute prism axis
-grid_offset = (grid_size(1) + 2) / sqrt(2) / 2; % How much does the grid extend outside the prism's back edge (farther edge from the camera)
-% grid_offset = (grid_size(1) + 0.5) / sqrt(2) / 2;
-% grid_mount_height = 3;
-grid_mount_height = 1.7; % 1 + sqrt(2)
-grid_thickness = 1; % Also includes some 
+% axes_prism(:,3) is the X axis along the prism's height.
+% axes_prism(:,1) is the -Z axis towards the camera's principal axis
+grid_offset = ((grid_size(1) - 1) / 2 + 3); % Distance between the grid midpoint and prism base (along the grid surface)
+grid_thickness = 0; % Also includes some 
 % axes_prism = roty(-45) * axes_grid;
 axes_prism = rotate_vector(axes_grid, axes_grid(:,2), -45); % Rotate about the horizontal axis (axes_grid(:,2))
-location_prism = grid_location + (prism_size - grid_offset - grid_thickness) * axes_prism(:,1)' - (prism_size / 2 + grid_offset + grid_mount_height) * axes_prism(:,3)';
+location_prism = grid_location + (prism_size - grid_offset / sqrt(2) - grid_thickness) * axes_prism(:,1)' - (prism_size / 2 + grid_offset / sqrt(2)) * axes_prism(:,3)';
 save([results_folder, '/prism_initialization.mat'], 'location_prism', 'axes_prism')
+front_face = [location_prism + axes_prism(:,3)' * prism_size / 2 - axes_prism(:,2)' * prism_size / 2; ...
+    location_prism + axes_prism(:,3)' * prism_size / 2 + axes_prism(:,2)' * prism_size / 2; ...
+    location_prism - axes_prism(:,3)' * prism_size / 2 + axes_prism(:,2)' * prism_size / 2; ...
+    location_prism - axes_prism(:,3)' * prism_size / 2 - axes_prism(:,2)' * prism_size / 2];
+
+top_face_location = grid_location + (prism_size / 2 - grid_offset / sqrt(2) - grid_thickness) * axes_prism(:,1)' - (grid_offset / sqrt(2)) * axes_prism(:,3)';
+top_face = [top_face_location + axes_prism(:,1)' * prism_size / 2 - axes_prism(:,2)' * prism_size / 2; ...
+    top_face_location + axes_prism(:,1)' * prism_size / 2 + axes_prism(:,2)' * prism_size / 2; ...
+    top_face_location - axes_prism(:,1)' * prism_size / 2 + axes_prism(:,2)' * prism_size / 2; ...
+    top_face_location - axes_prism(:,1)' * prism_size / 2 - axes_prism(:,2)' * prism_size / 2];
+
+hypotenuse_face = [front_face(3,:); top_face(3,:); top_face(4,:); front_face(4,:)];
+hold on 
+for i = 1:4
+    I = mod(i, 4) + 1;
+    plot3([front_face(i,1), front_face(I,1)], [front_face(i,2), front_face(I,2)], [front_face(i,3), front_face(I,3)], ...
+        'Linewidth', 2, 'Color', 'k')  
+end
+for i = 1:4
+    I = mod(i, 4) + 1;
+    plot3([top_face(i,1), top_face(I,1)], [top_face(i,2), top_face(I,2)], [top_face(i,3), top_face(I,3)], ...
+        'Linewidth', 2, 'Color', 'k')  
+end
+for i = 1:4
+    I = mod(i, 4) + 1;
+    plot3([hypotenuse_face(i,1), hypotenuse_face(I,1)], [hypotenuse_face(i,2), hypotenuse_face(I,2)], [hypotenuse_face(i,3), hypotenuse_face(I,3)], ...
+        'Linewidth', 2, 'Color', 'k')  
+end
+title('Initial guess')
+drawnow
+
+%% 
+figure,
+J = insertText(im,imagePoints_r,1:size(imagePoints_r,1), 'FontSize', 12, 'BoxOpacity', 0);
+J = insertMarker(J,imagePoints_r, 'x', 'color', 'green', Size=6);
+imshow(J)
+hold on
+title("Detected a Circle Grid of Dimensions " + mat2str(num_points))
+
+imagePoints = worldToImage(cameraParams, eye(3,3), zeros(3,1), grid_location, 'ApplyDistortion', true);
+
+front_face_2D = worldToImage(cameraParams, eye(3,3), zeros(3,1), front_face, 'ApplyDistortion', true);
+top_face_2D = worldToImage(cameraParams, eye(3,3), zeros(3,1), top_face, 'ApplyDistortion', true);
+hypotenuse_face_2D = worldToImage(cameraParams, eye(3,3), zeros(3,1), hypotenuse_face, 'ApplyDistortion', true);
+for i = 1:4
+    I = mod(i, 4) + 1;
+    plot([front_face_2D(i,1), front_face_2D(I,1)],...
+        [front_face_2D(i,2), front_face_2D(I,2)],...
+        'linewidth', 2, ...
+        'Color', 'r')
+    hold on
+    plot([top_face_2D(i,1), top_face_2D(I,1)],...
+        [top_face_2D(i,2), top_face_2D(I,2)], ...
+        'linewidth', 2,...
+        'Color','k')
+    hold on
+    plot([hypotenuse_face_2D(i,1), hypotenuse_face_2D(I,1)],...
+        [hypotenuse_face_2D(i,2), hypotenuse_face_2D(I,2)], ...
+        'linewidth', 2,...
+        'Color','k')
+    hold on
+end
+%%
 
 %% Show all axes
 % figure,
