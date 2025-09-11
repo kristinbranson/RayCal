@@ -45,16 +45,26 @@ class CalibrationDataset(Dataset):
 
 #%% Parse input arguments
 parser = argparse.ArgumentParser()
-parser.add_argument("--log_file", type=str, help="Path to the log file (should be a yaml file)", default=None)
+parser.add_argument("--exp_id", type=str, help="Path to the log file (should be a yaml file)", default='')
+parser.add_argument("--log_file", type=str, help="Path to the log file (should be a yaml file)", default='')
+parser.add_argument("--num_epochs", type=int, help="Number of training epochs", default=1000)
+
 args = parser.parse_args()
 exp_id = args.exp_id
+num_epochs = args.num_epochs
 log_file = args.log_file
-if log_file is None:
-    log_file = f'{exp_id}.yaml'
+if log_file == '':
+    log_file = f'exp_{exp_id}.yaml'
+
 yaml_results = {}
+yaml_results['training'] = {}
+yaml_results['initialization'] = {}
+yaml_results['plotting'] = {}
 yaml_results['training']['status'] = 'failed' # Change this to 'Successful' at the end of the script
 yaml_results['initialization']['status'] = 'failed' # Change this to 'Successful' after calculating initialization loss
 yaml_results['plotting']['status'] = 'failed'
+with open(log_file, 'w') as f:
+    yaml.safe_dump(yaml_results, f, sort_keys=False)
 
 #%% Load camera calibration results
 load_checkpoint = False
@@ -70,7 +80,7 @@ calibration_results_dir = f'/groups/branson/bransonlab/aniket/fly_walk_imaging/p
 calibration_results_file = 'dotted_grid_pairwise_data.mat'
 calibration_results_path = os.path.join(calibration_results_dir, calibration_results_file)
 prism_initialization_path = os.path.join(calibration_results_dir, 'prism_initialization.mat')
-prism_image_name = 'test_no_grid'
+prism_image_name = 'initialization'
 if os.path.isfile(
     os.path.join(
     os.path.dirname(calibration_results_dir),
@@ -207,8 +217,6 @@ prism_center = torch.tensor(prism_initializations['location_prism']).to(datatype
 prism_axes = torch.tensor(prism_initializations['axes_prism']).to(datatype).to(device)
 plane = Plane(axes=prism_axes)
 prism_angles = torch.tensor([plane.alpha, plane.beta, plane.gamma], dtype=datatype).to(device)
-prism_center[0] += 1.
-#prism_center[1] -= 1.
 arena = Arena_reprojection_loss_two_cameras_prism_grid_distances(principal_point_pixel_cam_0,
             principal_point_pixel_cam_1, 
             focal_length_cam_1, 
@@ -556,10 +564,11 @@ triangulation_loss = euclidean_distance(
                     ).mean()    
 print(f'Initial real pixel reprojection error: {recon_real_loss}, initial closest distance: {closest_distance.mean()}, initial pairwise distance error: {pairwise_distance_loss}')
 yaml_results['initialization']['status'] = 'passed'
-yaml_results['initialization']['repr_error_real'] = recon_real_loss
-yaml_results['initialization']['closest_distance_error'] = closest_distance_mean()
-yaml_results['initialization']['pairwise_distance_error'] = pairwise_distance_loss
-
+yaml_results['initialization']['repr_error_real'] = recon_real_loss.item()
+yaml_results['initialization']['closest_distance_error'] = closest_distance.mean().item()
+yaml_results['initialization']['pairwise_distance_error'] = pairwise_distance_loss.item()
+with open(log_file, 'w') as f:
+    yaml.safe_dump(yaml_results, f, sort_keys=False)
 
 #%% Training setup
 batch_size=1024
@@ -618,10 +627,8 @@ gt_val_loss_array = []
 closest_distance_val_loss_array = []
 best_loss = 1e100
 
-num_epochs = 1000
-
 plot = False
-arena.virtual_proj_prob_thresh = 0.05 # probability of calculating virtual reprojection error and using it for backprop
+arena.virtual_proj_prob_thresh = 0. # probability of calculating virtual reprojection error and using it for backprop
 for epoch in tqdm(range(0, num_epochs)):
     if epoch == 75:
         change_lr(optimizer, lr=1e-2)
@@ -784,12 +791,14 @@ if (recon_pixels_1_to_virtual is not None) and (recon_pixels_2_to_virtual is not
     print(f'Reprojection error for two virtual cameras: {reprojection_loss_1_to_virtual.mean()}, {reprojection_loss_2_to_virtual.mean()}')
 
 yaml_results['training']['status'] = 'passed'
-yaml_results['training']['repr_error_real_cam_0'] = reprojection_loss_1
-yaml_results['training']['repr_error_real_cam_1'] = reprojection_loss_2
-yaml_results['training']['repr_error_virtual_cam_0'] = reprojection_loss_1_to_virtual
-yaml_results['training']['repr_error_virtual_cam_1'] = reprojection_loss_2_to_virtual
-yaml_results['training']['pairwise_distance_error'] = pairwise_distance_loss
-yaml_results['training']['triangulation_error'] = triangulation_loss
+yaml_results['training']['repr_error_real_cam_0'] = reprojection_loss_1.mean().item()
+yaml_results['training']['repr_error_real_cam_1'] = reprojection_loss_2.mean().item()
+yaml_results['training']['repr_error_virtual_cam_0'] = reprojection_loss_1_to_virtual.mean().item()
+yaml_results['training']['repr_error_virtual_cam_1'] = reprojection_loss_2_to_virtual.mean().item()
+yaml_results['training']['pairwise_distance_error'] = pairwise_distance_loss.mean().item()
+yaml_results['training']['triangulation_error'] = triangulation_loss.item()
+with open(log_file, 'w') as f:
+    yaml.safe_dump(yaml_results, f, sort_keys=False)
 
 plt.figure(figsize=(15,15))
 plt.scatter(
@@ -915,6 +924,8 @@ plt.savefig(f'{model_checkpoint_dir}/training_loss.png')
 arena.visualize(pixels_virtual_two_cams_test, color_labels=True)
 plt.savefig(f'{model_checkpoint_dir}/final_arena.png')
 yaml_results['plotting']['status'] = "passed"
+with open(log_file, 'w') as f:
+    yaml.safe_dump(yaml_results, f, sort_keys=False)
 
 with open('temp.yaml', 'r') as file:
     data = yaml.load(file, Loader=yaml.FullLoader)

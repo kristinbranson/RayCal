@@ -635,9 +635,9 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
                 image_width=[1920,1920], 
                 image_height=[1200, 1200], 
                 cam_label_projection='both')
-            recon_pixels_1_to_virtual_undistorted, recon_pixels_2_to_virtual_undistorted = recon_pixels_virtual[:2,:], recon_pixels_virtual[2:,:]
-            recon_pixels_1_to_virtual = self.camera1.distort_pixels_classical(recon_pixels_1_to_virtual_undistorted, self.radial_dist_coeffs_cam_0)
-            recon_pixels_2_to_virtual = camera2.distort_pixels_classical(recon_pixels_2_to_virtual_undistorted, self.radial_dist_coeffs_cam_1)
+            recon_pixels_1_to_virtual, recon_pixels_2_to_virtual = recon_pixels_virtual[:2,:], recon_pixels_virtual[2:,:] # These are already distorted
+            #recon_pixels_1_to_virtual = self.camera1.distort_pixels_classical(recon_pixels_1_to_virtual_undistorted, self.radial_dist_coeffs_cam_0)
+            #recon_pixels_2_to_virtual = camera2.distort_pixels_classical(recon_pixels_2_to_virtual_undistorted, self.radial_dist_coeffs_cam_1)
 
         #distortion_penalty_cam_0 = self.camera1.calculate_distortion_penalty(recon_pixels_1, 
         #                                                                     self.radial_dist_coeffs_cam_0)
