@@ -45,9 +45,16 @@ class CalibrationDataset(Dataset):
 
 #%% Parse input arguments
 parser = argparse.ArgumentParser()
-parser.add_argument("--exp_id", type=int, help="Experiment ID")
+parser.add_argument("--log_file", type=str, help="Path to the log file (should be a yaml file)", default=None)
 args = parser.parse_args()
 exp_id = args.exp_id
+log_file = args.log_file
+if log_file is None:
+    log_file = f'{exp_id}.yaml'
+yaml_results = {}
+yaml_results['training']['status'] = 'failed' # Change this to 'Successful' at the end of the script
+yaml_results['initialization']['status'] = 'failed' # Change this to 'Successful' after calculating initialization loss
+yaml_results['plotting']['status'] = 'failed'
 
 #%% Load camera calibration results
 load_checkpoint = False
@@ -111,6 +118,7 @@ if load_checkpoint:
 else:
     model_checkpoint_dir = f'{outputs_dir}/model_checkpoints/exp_{exp_id}_{now.year}_{now.month}_{now.day}_{now.hour}_{now.minute}_{now.second}'
     os.makedirs(model_checkpoint_dir, exist_ok=True)
+    yaml_results['model_checkpoint_dir'] = model_checkpoint_dir
 
 num_points = -1
 mat = sio.loadmat(calibration_results_path)
@@ -547,6 +555,10 @@ triangulation_loss = euclidean_distance(
                         recon_3D, target_coordinates_stacked
                     ).mean()    
 print(f'Initial real pixel reprojection error: {recon_real_loss}, initial closest distance: {closest_distance.mean()}, initial pairwise distance error: {pairwise_distance_loss}')
+yaml_results['initialization']['status'] = 'passed'
+yaml_results['initialization']['repr_error_real'] = recon_real_loss
+yaml_results['initialization']['closest_distance_error'] = closest_distance_mean()
+yaml_results['initialization']['pairwise_distance_error'] = pairwise_distance_loss
 
 
 #%% Training setup
@@ -771,6 +783,14 @@ if (recon_pixels_1_to_virtual is not None) and (recon_pixels_2_to_virtual is not
     )
     print(f'Reprojection error for two virtual cameras: {reprojection_loss_1_to_virtual.mean()}, {reprojection_loss_2_to_virtual.mean()}')
 
+yaml_results['training']['status'] = 'passed'
+yaml_results['training']['repr_error_real_cam_0'] = reprojection_loss_1
+yaml_results['training']['repr_error_real_cam_1'] = reprojection_loss_2
+yaml_results['training']['repr_error_virtual_cam_0'] = reprojection_loss_1_to_virtual
+yaml_results['training']['repr_error_virtual_cam_1'] = reprojection_loss_2_to_virtual
+yaml_results['training']['pairwise_distance_error'] = pairwise_distance_loss
+yaml_results['training']['triangulation_error'] = triangulation_loss
+
 plt.figure(figsize=(15,15))
 plt.scatter(
     recon_pixels_1[0,:].cpu().detach().numpy(),
@@ -894,6 +914,7 @@ plt.savefig(f'{model_checkpoint_dir}/training_loss.png')
 #%% Visualize trained arena
 arena.visualize(pixels_virtual_two_cams_test, color_labels=True)
 plt.savefig(f'{model_checkpoint_dir}/final_arena.png')
+yaml_results['plotting']['status'] = "passed"
 
 with open('temp.yaml', 'r') as file:
     data = yaml.load(file, Loader=yaml.FullLoader)
