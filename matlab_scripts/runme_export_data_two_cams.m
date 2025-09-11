@@ -343,21 +343,23 @@ if strcmp(calibration_target_type, 'dotted_grid')
 end
 
 % Filter bad reprojection errors (likely from bad 2-D detections)
-bad_idx = any(acceptable_reprojection_errors_pairwise < repr_err_thresh, 2);
-idx = randperm(length(pairwise_distances));
-idx = setdiff(idx, bad_idx);
-idx = idx(1:num_samples);
-pairwise_distances = pairwise_distances(idx);
-output_data_cam_0_pairwise = output_data_cam_0_pairwise(idx, :);
-output_data_cam_1_pairwise = output_data_cam_1_pairwise(idx, :);
-output_data_cam_02_pairwise = output_data_cam_02_pairwise(idx, :);
-output_data_cam_13_pairwise = output_data_cam_13_pairwise(idx, :);
-output_data_cam_0_undistorted_pairwise = output_data_cam_0_undistorted_pairwise(idx, :);
-output_data_cam_1_undistorted_pairwise = output_data_cam_1_undistorted_pairwise(idx, :);
-output_data_cam_02_undistorted_pairwise = output_data_cam_02_undistorted_pairwise(idx, :);
-output_data_cam_13_undistorted_pairwise = output_data_cam_13_undistorted_pairwise(idx, :);
-acceptable_reprojection_errors_pairwise = acceptable_reprojection_errors_pairwise(idx, :);
-worldPoints_pairwise = worldPoints_pairwise(idx, :);
+good_idx = find(any(acceptable_reprojection_errors_pairwise < repr_err_thresh, 2));
+rand_idx = randperm(length(good_idx));
+rand_idx = rand_idx(1:num_samples);
+good_idx = good_idx(rand_idx);
+
+
+pairwise_distances = pairwise_distances(good_idx);
+output_data_cam_0_pairwise = output_data_cam_0_pairwise(good_idx, :);
+output_data_cam_1_pairwise = output_data_cam_1_pairwise(good_idx, :);
+output_data_cam_02_pairwise = output_data_cam_02_pairwise(good_idx, :);
+output_data_cam_13_pairwise = output_data_cam_13_pairwise(good_idx, :);
+output_data_cam_0_undistorted_pairwise = output_data_cam_0_undistorted_pairwise(good_idx, :);
+output_data_cam_1_undistorted_pairwise = output_data_cam_1_undistorted_pairwise(good_idx, :);
+output_data_cam_02_undistorted_pairwise = output_data_cam_02_undistorted_pairwise(good_idx, :);
+output_data_cam_13_undistorted_pairwise = output_data_cam_13_undistorted_pairwise(good_idx, :);
+acceptable_reprojection_errors_pairwise = acceptable_reprojection_errors_pairwise(good_idx, :);
+worldPoints_pairwise = worldPoints_pairwise(good_idx, :);
 display('Saving images')
 save([results_dir, calibration_target_type, '_pairwise_data.mat'], 'worldPoints_pairwise', 'output_data_cam_0_pairwise', 'output_data_cam_1_pairwise', ...
     'output_data_cam_02_pairwise', 'output_data_cam_13_pairwise', 'output_data_cam_0_undistorted_pairwise', 'output_data_cam_02_undistorted_pairwise', ...
