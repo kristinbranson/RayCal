@@ -49,12 +49,16 @@ parser.add_argument("--exp_id", type=str, help="Path to the log file (should be 
 parser.add_argument("--log_file", type=str, help="Path to the log file (should be a yaml file)", default='')
 parser.add_argument("--num_epochs", type=int, help="Number of training epochs", default=1000)
 
+calibration_scripts_logs = 'calibration_scripts_logs'
+os.makedirs(calibration_scripts_logs, exist_ok=True)
 args = parser.parse_args()
 exp_id = args.exp_id
+if 'exp_' in exp_id:
+    exp_id = exp_id.removeprefix("exp_")
 num_epochs = args.num_epochs
 log_file = args.log_file
 if log_file == '':
-    log_file = f'exp_{exp_id}.yaml'
+    log_file = os.path.join(calibration_scripts_logs, f'exp_{exp_id}.yaml')
 
 yaml_results = {}
 yaml_results['training'] = {}
