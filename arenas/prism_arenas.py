@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from ray_tracing_simulator_nnModules_grad import Prism, Ray, Plane, ReflectingPlane, RefractingPlane, EfficientCamera, visualize_camera_configuration, closest_point, rotx, get_rot_mat, Rotation6D
+from ray_tracing_simulator_nnModules_grad import PrismMirror, Ray, Plane, ReflectingPlane, RefractingPlane, EfficientCamera, visualize_camera_configuration, closest_point, rotx, get_rot_mat, Rotation6D
 from utils import euclidean_distance, rotation_matrix_to_quaternion
 from pytorch3d.transforms import matrix_to_euler_angles
 pi = torch.tensor(np.pi, dtype=torch.float64)
@@ -92,7 +92,7 @@ class Arena_3D_loss(nn.Module):
         prism_center = nn.Parameter(prism_center, requires_grad=True)
         prism_size = nn.Parameter(torch.tensor([20.,20.],dtype=torch.float64), requires_grad=True)
         #prism_size = torch.tensor([20.,20.,20.], dtype=torch.float64)
-        self.prism = Prism(prism_size=prism_size, 
+        self.prism = PrismMirror(prism_size=prism_size, 
                         prism_center=prism_center, 
                         prism_angles=prism_angles,
                         refractive_index_glass=refractive_index_glass,
@@ -261,7 +261,7 @@ class Arena_reprojection_loss_two_cameras_prism(nn.Module):
         prism_center = nn.Parameter(prism_center, requires_grad=True)
         prism_size = nn.Parameter(torch.tensor([20.,20.,20.],dtype=torch.float64), requires_grad=True)
 
-        self.prism = Prism(prism_size=prism_size, 
+        self.prism = PrismMirror(prism_size=prism_size, 
                         prism_center=prism_center, 
                         prism_angles=prism_angles,
                         refractive_index_glass=refractive_index_glass,
@@ -497,7 +497,7 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
                                         requires_grad=True
                                         )
 
-        self.prism = Prism(
+        self.prism = PrismMirror(
                         prism_size=self.prism_size, 
                         prism_center=self.prism_center, 
                         prism_rotation_6d=self.prism_rotation_6d,
@@ -541,7 +541,7 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
 
 
     def forward(self, pixels_virtual_two_cams, pixels_real_two_cams):
-        self.prism = Prism(prism_size=self.prism_size, 
+        self.prism = PrismMirror(prism_size=self.prism_size, 
                         prism_center=self.prism_center, 
                         prism_rotation_6d=self.prism_rotation_6d,
                         refractive_index_glass=self.refractive_index_glass,
@@ -803,7 +803,7 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
 
     def pass_through_virtual_cam(self, pixels_virtual_two_cams, cam_label='both'):
         # Input pixels aren't provided in pairs
-        self.prism = Prism(prism_size=self.prism_size,
+        self.prism = PrismMirror(prism_size=self.prism_size,
                         prism_center=self.prism_center,
                         prism_rotation_6d=self.prism_rotation_6d,
                         refractive_index_glass=self.refractive_index_glass,
@@ -965,7 +965,7 @@ class Arena_reprojection_loss_single_camera_prism(nn.Module):
         prism_center = nn.Parameter(prism_center, requires_grad=True)
         prism_size = nn.Parameter(torch.tensor([20.,20.,20.],dtype=torch.float64), requires_grad=True)
 
-        self.prism = Prism(prism_size=prism_size, 
+        self.prism = PrismMirror(prism_size=prism_size, 
                         prism_center=prism_center, 
                         prism_angles=prism_angles,
                         refractive_index_glass=refractive_index_glass,
@@ -1116,7 +1116,7 @@ class Arena_single_camera_prism_grid_distance(nn.Module):
         prism_center = nn.Parameter(prism_center, requires_grad=True)
         prism_size = nn.Parameter(torch.tensor([prism_size, prism_size, prism_size],dtype=torch.float64), requires_grad=True)
 
-        self.prism = Prism(prism_size=prism_size, 
+        self.prism = PrismMirror(prism_size=prism_size, 
                         prism_center=prism_center, 
                         prism_angles=prism_angles,
                         refractive_index_glass=refractive_index_glass,
@@ -1266,7 +1266,7 @@ class Arena_single_camera_prism_grid_image(nn.Module):
         prism_center = nn.Parameter(prism_center, requires_grad=True)
         prism_size = nn.Parameter(torch.tensor([20.,20.,20.],dtype=torch.float64), requires_grad=True)
 
-        self.prism = Prism(prism_size=prism_size, 
+        self.prism = PrismMirror(prism_size=prism_size, 
                         prism_center=prism_center, 
                         prism_angles=prism_angles,
                         refractive_index_glass=refractive_index_glass,
@@ -1374,7 +1374,7 @@ class Arena_adhesion_layer(nn.Module):
         adhesion_thickness_factor = nn.Parameter(torch.tensor(20.), requires_grad=True)
         refractive_index_adhesion = nn.Parameter(torch.tensor(1.5), requires_grad=True)
         #prism_size = torch.tensor([20.,20.,20.], dtype=torch.float32)
-        self.prism = Prism(prism_size=prism_size, 
+        self.prism = PrismMirror(prism_size=prism_size, 
                         prism_center=prism_center, 
                         prism_angles=prism_angles,
                         refractive_index_glass=refractive_index_glass,

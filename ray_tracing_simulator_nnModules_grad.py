@@ -1088,14 +1088,8 @@ class EfficientCamera(Plane, nn.Module):
             pixels_undistorted_new = pixels_distorted / radial_distortion
             
             # Check for convergence (Only look at non-NaN values)
-            diff = pixels_undistorted_new[nan_mask] - pixels_undistorted[nan_mask]
-            if diff.numel() > 0 and torch.max(torch.abs(diff)) < tolerance:
-                if torch.max(torch.abs(pixels_undistorted_new[nan_mask] - pixels_undistorted[nan_mask])) < tolerance:
-                    success = True
-                    break
-            else:
-                # nan_mask has filtered out all elements. Break
-                success = True # Since success flag is only used to check convergence. Detecting nans is not failure to converge
+            if torch.max(torch.abs(pixels_undistorted_new[nan_mask] - pixels_undistorted[nan_mask])) < tolerance:
+                success = True
                 break
             # Update for the next iteration
             pixels_undistorted = pixels_undistorted_new
@@ -1274,7 +1268,7 @@ def visualize_camera_configuration(camera=None, prism=None, pixels=None, ax=None
 
     if prism is None:
         prism_center = camera.aperture + camera.axes[:,0].unsqueeze(-1) * prism_distance
-        prism = Prism(prism_size=[20., 20., 20.], prism_center=prism_center, prism_angles=[pi,0.,0.])
+        prism = PrismMirror(prism_size=[20., 20., 20.], prism_center=prism_center, prism_angles=[pi,0.,0.])
             
     if pixels is None:
         pixels = torch.tensor([1,1]).unsqueeze(-1)
@@ -1296,7 +1290,7 @@ def visualize_camera_configuration(camera=None, prism=None, pixels=None, ax=None
 
 
 # %% Prism class
-class Prism(nn.Module):
+class PrismMirror(nn.Module):
 
     def __init__(self, 
                 prism_size=[1.,1.,1.], 
@@ -1311,7 +1305,7 @@ class Prism(nn.Module):
         - prism_angles (list): A list of angles alpha (X-axis), beta (Y-axis), gamma (Z-axis)
         - prism_center (list): Center of the first surface of the prism. (surface facing the camera)
         """
-        super(Prism, self).__init__()
+        super(PrismMirror, self).__init__()
         if not isinstance(prism_center, torch.Tensor):
             prism_center = torch.tensor(prism_center, 
                                         dtype=torch.float64)
@@ -1516,7 +1510,7 @@ class Arena(nn.Module):
         prism_center = nn.Parameter(prism_center, requires_grad=True)
         prism_angles = nn.Parameter(torch.tensor(prism_angles), requires_grad=True)
         refractive_index_glass = nn.Parameter(torch.tensor(1.5), requires_grad=True)
-        self.prism = Prism(
+        self.prism = PrismMirror(
             refractive_index_glass=refractive_index_glass,
             prism_size=[30., 30., 30.], 
             prism_center=prism_center, 
@@ -1544,7 +1538,7 @@ if __name__=="__main__":
         prism_gamma = 0
         prism_center = torch.tensor([0.,0.,0.])[:, None]
         
-        prism = Prism(prism_size=[1.,1.,1.], 
+        prism = PrismMirror(prism_size=[1.,1.,1.], 
                       prism_angles=[prism_alpha, prism_beta, prism_gamma], 
                       prism_center=prism_center, 
                       refractive_index_glass=n_glass, 
