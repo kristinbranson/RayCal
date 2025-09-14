@@ -1,5 +1,5 @@
 # %% Imports
-from ray_tracing_simulator_nnModules_grad import Prism, Ray, Plane, ReflectingPlane, RefractingPlane, Camera, visualize_camera_configuration, closest_point, rotx, get_rot_mat
+from ray_tracing_simulator_nnModules_grad import PrismMirror, Ray, Plane, ReflectingPlane, RefractingPlane, Camera, visualize_camera_configuration, closest_point, rotx, get_rot_mat
 import matplotlib.pyplot as plt
 import numpy as np  
 import torch
