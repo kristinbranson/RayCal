@@ -105,7 +105,7 @@ else
 fi
 
 #Annotating dividing column
-/misc/local/matlab-2023a/bin/matlab -r "exp_id = $1; dataDir = '$rootDataDir'; run('matlab_scripts/runme_annotate_dividing_column.m'); exit()"
+/misc/local/matlab-2023a/bin/matlab -r "exp_id = $1; dataDir = '$rootDataDir'; run('matlab_scripts/runme_annotate_dividing_column.m'); run('matlab_scripts/runme_annotate_circular_grid_points_automated.m'); run('matlab_scripts/runme_calibrate_grid_automated.m'); run('matlab_scripts/runme_annotate_grid_prism.m'); run('matlab_scripts/runme_export_data_two_cams.m'); run('matlab_scripts/runme_annotate_prism_initialization_image.m'); exit()"
 
 echo "Exported dividing columns"
 cal_grid_log_path="$rootDataDir/exp_$1/calibration_grid_images/logfile.txt"
@@ -119,21 +119,6 @@ echo "Dividing column for the first image: ${dividing_col[0]}"
 echo "Image width for the first image: ${image_width[0]}"
 echo "Dividing column for the second image: ${dividing_col[1]}"
 echo "Image width for the second image: ${image_width[1]}"
-
-echo "Detecting and saving dotted grids from cam_0 and cam_1. These will be used for estimating camera intrinsics"
-/misc/local/matlab-2023a/bin/matlab -batch "exp_id = $1; dataDir = '$rootDataDir'; run('matlab_scripts/runme_annotate_circular_grid_points_automated.m')"
-
-echo "Calibrating camera intrinsics and extrinsics and saving them"
-/misc/local/matlab-2023a/bin/matlab -batch "exp_id = $1; dataDir = '$rootDataDir'; run('matlab_scripts/runme_calibrate_grid_automated.m')"
-
-echo "Detecting and saving dotted grids from cam_02 and cam_13"
-/misc/local/matlab-2023a/bin/matlab -batch "exp_id = $1; dividing_col = [${dividing_col[0]}, ${dividing_col[1]}];  dataDir = '$rootDataDir'; run('matlab_scripts/runme_annotate_grid_prism.m')"
-
-echo "Exporting grid coordinates in a format ready for calibration"
-/misc/local/matlab-2023a/bin/matlab -batch "exp_id = $1; dataDir = '$rootDataDir'; run('matlab_scripts/runme_export_data_two_cams.m')"
-
-echo "Exporting prism initialization"
-/misc/local/matlab-2023a/bin/matlab -batch "exp_id = $1; dividing_col = [${dividing_col[0]}, ${dividing_col[1]}] ; dataDir = '$rootDataDir'; run('matlab_scripts/runme_annotate_prism_initialization_image.m')"
 
 echo "Training calibration model using pytorch-based ray-tracing"
 
@@ -175,25 +160,25 @@ else
 fi
 
 # Pick the more generous cropping parameteres of the two cameras and assign them consistently across botht the cameras
-if (${dividing_col[0]} > ${dividing_col[1]}); then
+if ([${dividing_col[0]} -gt ${dividing_col[1]}]); then
 	dividing_col[1]=${dividing_col[0]}
 else
 	dividing_col[0]=${dividing_col[1]}
 fi
 
-if (${starting_col[0]} > ${starting_col[1]}); then
+if ([${starting_col[0]} -gt ${starting_col[1]}]); then
         starting_col[0]=${starting_col[1]}
 else
         starting_col[1]=${starting_col[0]}
 fi
 
-if (${crop_upper_real_view[0]} > ${crop_upper_real_view[1]}); then
+if ([${crop_upper_real_view[0]} -gt ${crop_upper_real_view[1]}]); then
 	crop_upper_real_view[1]=${crop_upper_real_view[0]}
 else
 	crop_upper_real_view[0]=${crop_upper_real_view[1]}
 fi
 
-if (${crop_lower_real_view[0]} > ${crop_lower_real_view[1]}); then
+if ([${crop_lower_real_view[0]} -gt ${crop_lower_real_view[1]}]); then
         crop_lower_real_view[0]=${crop_lower_real_view[1]}
 else
         crop_lower_real_view[1]=${crop_lower_real_view[0]}
