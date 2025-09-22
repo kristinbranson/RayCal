@@ -1024,10 +1024,11 @@ class EfficientCamera(Plane, nn.Module):
         self.get_principal_point_from_aperture()
         self.principal_point_pixel = principal_point_pixel
         self.r1 = r1 # Radial distortion parameter
-        self.r1d = nn.Parameter(torch.tensor(0., dtype=torch.float64, device=self.principal_point_pixel.device), requires_grad=False)
+        """self.r1d = nn.Parameter(torch.tensor(0., dtype=torch.float64, device=self.principal_point_pixel.device), requires_grad=False)
         self.r2d = nn.Parameter(torch.tensor(0., dtype=torch.float64, device=self.principal_point_pixel.device), requires_grad=False)
         self.r1u = nn.Parameter(torch.tensor(0., dtype=torch.float64, device=self.principal_point_pixel.device), requires_grad=False)
         self.r2u = nn.Parameter(torch.tensor(0., dtype=torch.float64, device=self.principal_point_pixel.device), requires_grad=False)
+        """
         #self.radial_dist_coeffs = radial_dist_coeffs # (2,) tensor
         self.update_camera_center()
         
@@ -1035,7 +1036,7 @@ class EfficientCamera(Plane, nn.Module):
         output_size = 1
         hidden_size = 8
         
-        self.dist_layer = nn.Sequential(
+        """self.dist_layer = nn.Sequential(
             nn.Linear(input_size, hidden_size, dtype=torch.float64),  # First layer
             nn.LeakyReLU(),                           # Activation function
             nn.Linear(hidden_size, hidden_size, dtype=torch.float64),
@@ -1054,7 +1055,7 @@ class EfficientCamera(Plane, nn.Module):
             nn.LeakyReLU(),
             nn.Linear(hidden_size, output_size, dtype=torch.float64),  # Output layer
             nn.ReLU(),
-        )
+        )"""
         
                 
         # Plane (defining the camera) center should be shifted so that the principal point is along the normal plane through the aperture
@@ -1129,6 +1130,12 @@ class EfficientCamera(Plane, nn.Module):
     def get_principal_point_from_aperture(self):
         focal_length = self.focal_length_pixels * self.pixel_size
         self.principal_point = self.aperture - focal_length * self.axes[:,0].unsqueeze(-1)
+
+
+    def get_aperture_from_principal_point(self):
+        focal_length = self.focal_length_pixels * self.pixel_size
+        self.aperture = self.principal_point + focal_length * self.axes[:,0].unsqueeze(-1)
+        #self.principal_point = self.aperture - focal_length * self.axes[:,0].unsqueeze(-1)
 
         
     def initialize_ray(self, pixel):

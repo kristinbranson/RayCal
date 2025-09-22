@@ -416,24 +416,31 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
     ):
         super(Arena_reprojection_loss_two_cameras_prism_grid_distances, self).__init__()
 
+        self.prism_axial_distance_scaling = 1000.
+        self.prism_lateral_distance_scaling = 100.
+        self.camera_focal_length_scaling = 1000.
+        self.camera_principal_point_scaling = 1000.
+        self.prism_size_scaling_factor = 1.
+        self.stereo_camera_T_scaling = 100.
+
         # Camera initialization      
-        principal_point_pixel_cam_0 = nn.Parameter(
-            torch.tensor(principal_point_pixel_cam_0, dtype=torch.float64).reshape(2,1),
+        self.principal_point_pixel_cam_0 = nn.Parameter(
+            torch.tensor(principal_point_pixel_cam_0, dtype=torch.float64).reshape(2,1) / self.camera_principal_point_scaling,
             requires_grad=True,
         )  
 
-        principal_point_pixel_cam_1 = nn.Parameter(
-            torch.tensor(principal_point_pixel_cam_1, dtype=torch.float64).reshape(2,1),
+        self.principal_point_pixel_cam_1 = nn.Parameter(
+            torch.tensor(principal_point_pixel_cam_1, dtype=torch.float64).reshape(2,1) / self.camera_principal_point_scaling,
             requires_grad=True,
         )  
 
-        focal_length_cam_0 = nn.Parameter(
-            torch.tensor(focal_length_cam_0, dtype=torch.float64),
+        self.focal_length_cam_0 = nn.Parameter(
+            torch.tensor(focal_length_cam_0, dtype=torch.float64) / self.camera_focal_length_scaling,
             requires_grad=True,
         )
 
-        focal_length_cam_1 = nn.Parameter(
-            torch.tensor(focal_length_cam_1, dtype=torch.float64),
+        self.focal_length_cam_1 = nn.Parameter(
+            torch.tensor(focal_length_cam_1, dtype=torch.float64) / self.camera_focal_length_scaling,
             requires_grad=True,
         )
 
@@ -453,16 +460,15 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
         self.radial_dist_coeffs_cam_1 = nn.Parameter(torch.tensor([0.,0.,0.]).unsqueeze(-1).to(torch.float64),
                                                requires_grad=True)
 
-        self.camera1 = EfficientCamera(
+        # Moved this to the forward pass to migrate to physical units
+        """self.camera1 = EfficientCamera(
             principal_point_pixel=principal_point_pixel_cam_0,
             focal_length_pixels=focal_length_cam_0,
             r1=self.r1,
-            radial_dist_coeffs=self.radial_dist_coeffs_cam_0)
-
-        self.principal_point_pixel_cam_1 = principal_point_pixel_cam_1
-        self.focal_length_cam_1 = focal_length_cam_1
+            radial_dist_coeffs=self.radial_dist_coeffs_cam_0)""" 
+    
         self.R_stereo_cam = R_stereo_cam
-        self.T_stereo_cam = nn.Parameter(T_stereo_cam, requires_grad=True)
+        self.T_stereo_cam = nn.Parameter(T_stereo_cam / self.stereo_camera_T_scaling, requires_grad=True)
         stereo_alpha, stereo_beta, stereo_gamma = self.get_stereo_camera_angles(R_stereo_cam)
         self.stereo_camera_rotation_6d = Rotation6D(
                 stereo_gamma,
@@ -475,7 +481,11 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
         #                                                     device=R_stereo_cam.device),
         #                                        requires_grad=True
         #                                        ) # Deprecated
-
+        self.camera1 = EfficientCamera(
+            principal_point_pixel=self.principal_point_pixel_cam_0 * self.camera_principal_point_scaling,
+            focal_length_pixels=self.focal_length_cam_0 * self.camera_focal_length_scaling,
+            r1=self.r1,
+            radial_dist_coeffs=self.radial_dist_coeffs_cam_0) # NOTE: This is a temporary initialization. The actual initialization for gradient computation is done in the forward pass
 
         # Prism initialization
         #self.prism_angles = nn.Parameter(prism_angles, requires_grad=True) 
@@ -489,11 +499,14 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
             prism_center = self.camera1.aperture.clone() + self.camera1.axes[:,0].unsqueeze(-1).clone() * prism_distance.clone()
             prism_center[0] = -5.
 
+        prism_center[-1] = prism_center[-1] / self.prism_axial_distance_scaling
+        prism_center[0:2] = prism_center[0:2] / self.prism_lateral_distance_scaling
+
         self.prism_center = nn.Parameter(prism_center, requires_grad=True)
         self.prism_size = nn.Parameter(
                                         torch.tensor(
                                         [20.,20.,20.],
-                                        dtype=torch.float64), 
+                                        dtype=torch.float64) / self.prism_size_scaling_factor, 
                                         requires_grad=True
                                         )
 
@@ -504,11 +517,13 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
                         refractive_index_glass=self.refractive_index_glass,
                         )
         
+        
 
     def get_stereo_camera_angles(self, 
                                  R_stereo_cam):
         gamma, beta, alpha = matrix_to_euler_angles(R_stereo_cam, 'ZYX')
         return alpha, beta, gamma
+        # This was tested to be slower by a factor of two
         axes = torch.eye(3,3).to(device=R_stereo_cam.device, dtype=torch.float64)
         axes = torch.mm(R_stereo_cam, axes)
         plane = Plane(axes=axes)
@@ -530,6 +545,25 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
         camera2.update_camera_pose(R, T)
         return camera2
     
+    def _to_physical(self):
+        prism_size = self.prism_size * self.prism_size_scaling_factor
+        prism_center = self.prism_center
+        prism_center_clone = prism_center.clone()
+        prism_center_clone[-1] = prism_center_clone[-1] * self.prism_axial_distance_scaling
+        prism_center_clone[0:2] = prism_center_clone[0:2] * self.prism_lateral_distance_scaling
+        focal_length_cam_0 = self.focal_length_cam_0 * self.camera_focal_length_scaling
+        focal_length_cam_1 = self.focal_length_cam_1 * self.camera_focal_length_scaling
+        principal_point_pixel_cam_0 = self.principal_point_pixel_cam_0 * self.camera_principal_point_scaling
+        principal_point_pixel_cam_1 = self.principal_point_pixel_cam_1 * self.camera_principal_point_scaling
+        stereo_camera_T = self.T_stereo_cam * self.stereo_camera_T_scaling
+        return dict(prism_size=prism_size,
+                    prism_center=prism_center_clone,
+                    focal_length_cam_0=focal_length_cam_0,
+                    focal_length_cam_1=focal_length_cam_1,
+                    principal_point_pixel_cam_0=principal_point_pixel_cam_0,
+                    principal_point_pixel_cam_1=principal_point_pixel_cam_1,
+                    stereo_camera_T=stereo_camera_T
+                    )
 
     def get_prism_corners(self):
         front_plane, reflecting_plane, top_plane = self.prism.get_planes(prism_center=self.prism.prism_center,
@@ -541,8 +575,17 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
 
 
     def forward(self, pixels_virtual_two_cams, pixels_real_two_cams):
-        self.prism = PrismMirror(prism_size=self.prism_size, 
-                        prism_center=self.prism_center, 
+        physical_params = self._to_physical()
+        prism_size = physical_params['prism_size']
+        prism_center = physical_params['prism_center']
+        principal_point_pixel_cam_0 = physical_params['principal_point_pixel_cam_0']
+        focal_length_cam_0 = physical_params['focal_length_cam_0']
+        principal_point_pixel_cam_1 = physical_params['principal_point_pixel_cam_1']
+        focal_length_cam_1 = physical_params['focal_length_cam_1']
+        T_stereo_cam = physical_params['stereo_camera_T']
+        
+        self.prism = PrismMirror(prism_size=prism_size, 
+                        prism_center=prism_center, 
                         prism_rotation_6d=self.prism_rotation_6d,
                         refractive_index_glass=self.refractive_index_glass,
                         )
@@ -551,17 +594,26 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
         #    self.stereo_camera_angles[0],
         #    self.stereo_camera_angles[1],
         #    self.stereo_camera_angles[2],
-        #    )
+        #    ) # Deprecated after moving to 6-d rotation representation
         R1 = torch.eye(3, 3).to(device=pixels_virtual_two_cams.device, dtype=torch.float64)
         T1 = torch.zeros(3, 1).to(device=pixels_virtual_two_cams.device, dtype=torch.float64)
         R2 = self.stereo_camera_rotation_6d.matrix()
-        T2 = self.T_stereo_cam
-        camera2 = self.get_stereo_camera(self.principal_point_pixel_cam_1,
-                                    self.focal_length_cam_1,
+        T2 = T_stereo_cam
+
+        self.camera1 = EfficientCamera(
+            principal_point_pixel=principal_point_pixel_cam_0,
+            focal_length_pixels=focal_length_cam_0,
+            r1=self.r1,
+            radial_dist_coeffs=self.radial_dist_coeffs_cam_0)
+        #NOTE: (To future self) Is there any reason why we shouldn't make this an attribute of the class?
+        camera2 = self.get_stereo_camera(principal_point_pixel_cam_1,
+                                    focal_length_cam_1,
                                     R2,
-                                    self.T_stereo_cam,
+                                    T_stereo_cam,
                                     r1=self.stereocam_r1,
                                     radial_dist_coeffs=self.radial_dist_coeffs_cam_1)
+        
+
         distorted_real_pixels_cam_0 = torch.hstack((pixels_real_two_cams[:2,:], 
                                                     pixels_real_two_cams[2:4,:]))
         distorted_real_pixels_cam_1 = torch.hstack((pixels_real_two_cams[4:6,:], 
@@ -636,14 +688,7 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
                 image_height=[1200, 1200], 
                 cam_label_projection='both')
             recon_pixels_1_to_virtual, recon_pixels_2_to_virtual = recon_pixels_virtual[:2,:], recon_pixels_virtual[2:,:] # These are already distorted
-            #recon_pixels_1_to_virtual = self.camera1.distort_pixels_classical(recon_pixels_1_to_virtual_undistorted, self.radial_dist_coeffs_cam_0)
-            #recon_pixels_2_to_virtual = camera2.distort_pixels_classical(recon_pixels_2_to_virtual_undistorted, self.radial_dist_coeffs_cam_1)
-
-        #distortion_penalty_cam_0 = self.camera1.calculate_distortion_penalty(recon_pixels_1, 
-        #                                                                     self.radial_dist_coeffs_cam_0)
-        #distortion_penalty_cam_1 = camera2.calculate_distortion_penalty(recon_pixels_2,
-        #                                                                self.radial_dist_coeffs_cam_1)
-        
+       
         output = {}
         output['recon_3D'] = recon_3D
         output['recon_3D_real'] = recon_3D_real

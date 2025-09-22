@@ -3,6 +3,7 @@ from ray_tracing_simulator_nnModules_grad import PrismMirror, Ray, Plane, Reflec
 import matplotlib.pyplot as plt
 import numpy as np  
 import torch
+
 import random
 seed = 42
 # Python random
@@ -171,19 +172,22 @@ def change_lr(optimizer, lr):
             param_group['lr'] = lr
 
 #%% Freeze parameters
-def freeze_camera_parameters(camera):
-    for param in camera.parameters():
-        param.requires_grad = False
+def freeze_primary_camera_parameters(arena):
+    arena.focal_length_cam_0.requires_grad = False
+    arena.principal_point_pixel_cam_0.requires_grad = False
+    arena.radial_dist_coeffs_cam_0.requires_grad = False
+    
 
 def freeze_individual_planes(prism):
     for param in prism.plane1.parameters():
         param.requires_grad = False
-    
     for param in prism.plane2.parameters():
         param.requires_grad = False
-    
     for param in prism.plane3.parameters():
         param.requires_grad = False
+
+def freeze_prism_angles(prism):
+    prism.prism_rotation_6d.rotation_6d.requires_grad = False
 
 def freeze_stereocamera(arena):
     arena.focal_length_cam_1.requires_grad = False
@@ -192,8 +196,8 @@ def freeze_stereocamera(arena):
     arena.stereocam_r1.requires_grad = False
 
 def freeze_prism_parameters_subset(arena):
-    arena.prism.prism_size.requires_grad = False
-    arena.prism.refractive_index_glass.requires_grad = False
+    arena.prism_size.requires_grad = False
+    arena.refractive_index_glass.requires_grad = False
 
 def unfreeze_camera_parameters(camera):
     for param in camera.parameters():
@@ -231,9 +235,10 @@ arena = Arena_reprojection_loss_two_cameras_prism_grid_distances(principal_point
             prism_center=prism_center)
 pixels_virtual_two_cams = torch.vstack((virtual_pixels_cam_0, virtual_pixels_cam_1))
 pixels_real_two_cams = torch.vstack((undistorted_real_pixels_cam_0, undistorted_real_pixels_cam_1))
-freeze_camera_parameters(arena.camera1)
+freeze_primary_camera_parameters(arena)
 freeze_stereocamera(arena)
 freeze_prism_parameters_subset(arena)
+#freeze_prism_angles(arena.prism)
 
 
 if load_checkpoint:
@@ -433,6 +438,7 @@ def train_two_cams(model, train_loader, criterion, plot=False):
             # Recon_real_loss is the pixel error between the reprojected 3D point from real pixels and the real pixel
             loss = (1e1 * overall_reprojection_loss) + (1e3 * intersection_loss) + 0 * distortion_loss + (1e1 * closest_distance_loss) + (5e3 * pairwise_distance_loss)
             loss.backward()
+            #torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.)
             optimizer.step()
             total_loss += loss.item()
             # virtual_loss += recon_virtual_loss.item()
@@ -602,7 +608,7 @@ pixels_virtual_two_cams_train, pixels_virtual_two_cams_val = random_split(
 train_loader = DataLoader(pixels_virtual_two_cams_train, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(pixels_virtual_two_cams_val, batch_size=batch_size, shuffle=False)
 
-optimizer = optim.Adam(arena.parameters(), lr=1e-2
+optimizer = optim.Adam(arena.parameters(), lr=1e-2, betas=(0.9, 0.999)
                        )
 criterion = torch.nn.MSELoss()
 arena.to(device)
@@ -635,10 +641,11 @@ plot = False
 arena.virtual_proj_prob_thresh = 0. # probability of calculating virtual reprojection error and using it for backprop
 for epoch in tqdm(range(0, num_epochs)):
     if epoch == 75:
-        change_lr(optimizer, lr=1e-2)
+        change_lr(optimizer, lr=3e-3)
 
     if epoch == 150:
-        change_lr(optimizer, lr=5e-3)
+        change_lr(optimizer, lr=1e-3)
+        unfreeze_all_parameters(arena)
 
     if epoch == 200:
         change_lr(optimizer, lr=1e-3)
@@ -648,7 +655,7 @@ for epoch in tqdm(range(0, num_epochs)):
 
     if epoch == 300:
         change_lr(optimizer, lr=1e-4)
-        unfreeze_all_parameters(arena)
+        #unfreeze_all_parameters(arena)
     
     if epoch == 800:
         change_lr(optimizer, lr=5e-5)
@@ -694,20 +701,103 @@ for epoch in tqdm(range(0, num_epochs)):
          'Angle1':prism_beta,
           'Angle2':prism_gamma},
             epoch)
+    if arena.prism_rotation_6d.rotation_6d.requires_grad:
+        grad = arena.prism_rotation_6d.rotation_6d.grad
+    else:
+        grad = [0.,0.,0.,0.,0.,0.]
+    writer.add_scalars('Grad/prism_6d_rotation_grad', {
+        'Prism_rotation_6d':grad[0],
+        'Prism_rotation_6d_1':grad[1],
+        'Prism_rotation_6d_2':grad[2],
+        'Prism_rotation_6d_3':grad[3],
+        'Prism_rotation_6d_4':grad[4],
+        'Prism_rotation_6d_5':grad[5]
+        },
+            epoch)
     writer.add_scalars('Parameter/prism_size', {
-        'Size0':arena.prism.prism_size[0],
-         'Size1':arena.prism.prism_size[1],
-          'Size2':arena.prism.prism_size[2]},
+        'Size0':arena.prism_size[0],
+         'Size1':arena.prism_size[1],
+          'Size2':arena.prism_size[2]},
+            epoch)
+    if arena.prism_size.requires_grad:
+        grad = arena.prism_size.grad
+    else:
+        grad = [0.,0.,0.]
+    writer.add_scalars('Grad/prism_size', {
+        'prism_size grad':grad[0],
+        'prism_size_1 grad':grad[1],
+        'prism_size_2 grad':grad[2]
+        },
             epoch)
     writer.add_scalars('Parameter/prism_center', {
-        'Center0':arena.prism.prism_center[0],
-         'Center1':arena.prism.prism_center[1],
-          'Center2':arena.prism.prism_center[2]},
+        'Center0':arena.prism_center[0],
+         'Center1':arena.prism_center[1],
+          'Center2':arena.prism_center[2]},
             epoch)
-    writer.add_scalar('Parameter/focal_length_pixels_0', arena.camera1.focal_length_pixels, epoch)
+    if arena.prism_center.requires_grad:
+        grad = arena.prism_center.grad
+    else:
+        grad = [0.,0.,0.]
+    writer.add_scalars('Grad/prism_center', {
+        'prism_center_grad':grad[0],
+        'prism_center_1 grad':grad[1],
+        'prism_center_2 grad':grad[2]},
+            epoch)
+    writer.add_scalar('Parameter/focal_length_pixels_0', arena.focal_length_cam_0, epoch)
+    if arena.focal_length_cam_0.requires_grad:
+        grad = arena.focal_length_cam_0.grad
+    else:
+        grad = 0.
+
+    writer.add_scalars('Grad/focal_length_pixels_0_grad', {
+        'focal_length_0_x':grad}, 
+        epoch)
+    writer.add_scalar('Parameter/focal_length_pixels_1', arena.focal_length_cam_1, epoch)
+    if arena.focal_length_cam_1.requires_grad:
+        grad = arena.focal_length_cam_1.grad
+    else:
+        grad = 0.
+    writer.add_scalars('Grad/focal_length_pixels_1_grad', {
+        'focal_length_pixels_1_x': grad}, 
+        epoch)
     writer.add_scalars('Parameter/camera1_principal_point', {
-        'Angle0':arena.camera1.principal_point_pixel[0],
-         'Angle1':arena.camera1.principal_point_pixel[1]},
+        'principal_point_x':arena.principal_point_pixel_cam_0[0],
+         'principal_point_y':arena.principal_point_pixel_cam_0[1]},
+            epoch)
+    if arena.principal_point_pixel_cam_0.requires_grad:
+        grad = arena.principal_point_pixel_cam_0.grad
+    else:
+        grad = [0.,0.,0.]
+    writer.add_scalars('Grad/camera1_principal_point_grad', {
+        'Camera_1_principal_point_grad':grad[0],
+        'Camera_1_principal_point_grad_1':grad[1]
+        },
+            epoch)
+    writer.add_scalars('Parameter/camera2_principal_point', {
+        'Angle0':arena.principal_point_pixel_cam_1[0],
+         'Angle1':arena.principal_point_pixel_cam_1[1]},
+            epoch)
+    if arena.principal_point_pixel_cam_1.requires_grad:
+        grad = arena.principal_point_pixel_cam_1.grad
+    else:
+        grad = [0.,0.,0.]
+    writer.add_scalars('Grad/camera2_principal_point_grad', {
+        'Camera_2_principal_point_grad':grad[0],
+        'Camera_2_principal_point_grad_1':grad[1]
+        },
+            epoch)
+    if arena.stereo_camera_rotation_6d.rotation_6d.requires_grad:
+        grad = arena.stereo_camera_rotation_6d.rotation_6d.grad
+    else:
+        grad = [0.,0.,0.,0.,0.,0.]
+    writer.add_scalars('Grad/stereocam_rotation_6d_grad', {
+        'Stereocam_6d_grad':grad[0],
+        'Stereocam_6d_grad':grad[1],
+        'Stereocam_6d_grad':grad[2],
+        'Stereocam_6d_grad':grad[3],
+        'Stereocam_6d_grad':grad[4],
+        'Stereocam_6d_grad':grad[5],
+        },
             epoch)
 
     if epoch % 10 == 0:
