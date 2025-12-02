@@ -73,7 +73,6 @@ for cam_id = cam_ids
         imagePoints_r = flip_grid_v(imagePoints_r, grid_size);
     end
 
-
     if tilted_cameras && cam_id == 2 % One of the cameras was rotated wrt the other
         imagePoints_r = flip_grid_h(imagePoints_r, grid_size);
     end
@@ -155,7 +154,7 @@ grid_location = mean(worldPoints_rot, 1); % Center of the grid
 %% Compute prism axis
 % axes_prism(:,3) is the X axis along the prism's height.
 % axes_prism(:,1) is the -Z axis towards the camera's principal axis
-grid_offset = ((grid_size(1) - 1) / 2 + 3); % Distance between the grid midpoint and prism base (along the grid surface)
+grid_offset = ((grid_size(1) - 1) / 2 + 2.75); % Distance between the grid midpoint and prism base (along the grid surface)
 grid_thickness = 0; % Also includes some 
 % axes_prism = roty(-45) * axes_grid;
 axes_prism = rotate_vector(axes_grid, axes_grid(:,2), -45); % Rotate about the horizontal axis (axes_grid(:,2))
