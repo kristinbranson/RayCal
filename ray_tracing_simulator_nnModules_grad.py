@@ -160,10 +160,12 @@ def compare_rotation_times(ntrials=10000):
     endtime = time.perf_counter()
     print(f'Average time for get_rot_mat(): {(endtime - starttime) / ntrials}')
   
+
 def get_rot_mat(alpha, beta, gamma):
         # First rotate
         return euler_angles_to_matrix(torch.tensor([gamma, beta, alpha], dtype=datatype), "ZYX")
         #return torch.mm(torch.mm(rotz(gamma), roty(beta)), rotx(alpha)) # Rotation matrix: this is 2x slower than euler_angles_to_matrix
+
 
 def closest_distance_from_point(point, ray):
     """
@@ -202,6 +204,7 @@ def closest_distance_from_point(point, ray):
 class Ray():
     def __init__(self, origin=None, direction=None, target=None):
         """
+        An object defining a ray of light. There are two ways of initialization a ray object: either with origin and target 3-D points, or with origin 3-D point and a 3-D direction vector
         Parameters:
         - origin (2-D list): Origin of the ray.
         - direction (2-D list): Direction of the ray.
