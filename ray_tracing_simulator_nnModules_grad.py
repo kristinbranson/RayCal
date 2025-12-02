@@ -325,15 +325,16 @@ class Plane(nn.Module):
     def __init__(self, axes=None, center=None, alpha=0., beta=0., gamma=0., a=1., b=1.):
         super(Plane, self).__init__()
         """
+        Generates an object defining a plane. The plane is characterized by its axes (normal, horizontal and vertical), and its size along its horizontal and vertical direction
+        An alternate way of defining the plane is the angles of its normal vector with the X, Y and Z axes and its size along its horizontal and vertical direction
         NOTE: Default normal vector is [1, 0, 0], and center is [0,0,0]
         Parameters:
-        - normal (2-D list): Normal of the plane.
         - center (2-D list): Center of the plane.
-        - alpha (float): Angle of the plane with respect to the x-axis.
-        - beta (float): Angle of the plane with respect to the y-axis.
-        - gamma (float): Angle of the plane with respect to the z-axis.
-        - a (float): Width of the plane (for the default plane, along Y-axis).
-        - b (float): Height of the plane (for the default plane, along Z-axis).
+        - alpha (float): Angle of the plane's normal vector with respect to the x-axis.
+        - beta (float): Angle of the plane's normal vector with respect to the y-axis.
+        - gamma (float): Angle of the plane's normal vector with respect to the z-axis.
+        - a (float): Width of the plane (for the default plane, along its horizontal axis).
+        - b (float): Height of the plane (for the default plane, along its vertical axis).
         - axes ((3,3) tensor): Axes of the plane
                                 Each column represents one axies
                                 The first column is the normal to the plane
