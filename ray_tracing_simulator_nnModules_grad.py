@@ -272,7 +272,7 @@ class Ray():
         distance = torch.linalg.norm(distance, dim=0)
         return distance
 
-    def visualize(self, fig=None, ax=None, color_labels=None):
+    def visualize(self, fig=None, ax=None, color_labels=None, color='black'):
         """
         Visualize the ray.
         Parameters:
@@ -291,13 +291,15 @@ class Ray():
         ax.scatter(self.origin[0].cpu().detach().numpy(), 
                    self.origin[1].cpu().detach().numpy(), 
                    self.origin[2].cpu().detach().numpy(), 
-                   s=1, 
+                   s=3, 
                    marker='o', 
                    color='black')
         #NOTE: t has a shape of (N,1) where N is the number of rays
         for ray_id in range(num_rays):
             if color_labels:
                 ray_color = colors[ray_id]
+            elif color:
+                ray_color = color
             else:
                 ray_color = 'black'
             ax.plot([self.origin[0, ray_id].cpu().detach().numpy(),
