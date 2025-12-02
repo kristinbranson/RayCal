@@ -13,6 +13,7 @@ import os
 import scipy.io as sio
 import torch.nn as nn
 from utils import euclidean_distance
+datatype = torch.float64
 from pytorch3d.transforms import (
     rotation_6d_to_matrix,
     matrix_to_rotation_6d,
@@ -48,7 +49,7 @@ class Rotation6D(nn.Module):
             self.rotation_6d = nn.Parameter(init_6d.clone())
         else:
             # Initialize from Euler angles
-            euler_tensor = torch.tensor([init_alpha, init_beta, init_gamma], dtype=torch.float64)
+            euler_tensor = torch.tensor([init_alpha, init_beta, init_gamma], dtype=datatype)
             rotation_matrix = euler_angles_to_matrix(euler_tensor.unsqueeze(0), "ZYX")
             init_6d = matrix_to_rotation_6d(rotation_matrix).squeeze(0)
             self.rotation_6d = nn.Parameter(init_6d)
@@ -79,7 +80,7 @@ class Rotation6D(nn.Module):
 
 plt.ion()
 
-pi = torch.tensor(np.pi).to(torch.float64)
+pi = torch.tensor(np.pi).to(datatype)
 
 def rotx(angle):
     """
@@ -92,9 +93,9 @@ def rotx(angle):
     if not isinstance(angle, torch.Tensor):
         angle = torch.tensor(angle)
     return torch.stack([
-    torch.tensor([1.0, 0.0, 0.0], device=angle.device, dtype=torch.float64),
-    torch.stack([torch.tensor(0.0, device=angle.device, dtype=torch.float64), torch.cos(angle), -torch.sin(angle)]),
-    torch.stack([torch.tensor(0.0, device=angle.device, dtype=torch.float64), torch.sin(angle), torch.cos(angle)])
+    torch.tensor([1.0, 0.0, 0.0], device=angle.device, dtype=datatype),
+    torch.stack([torch.tensor(0.0, device=angle.device, dtype=datatype), torch.cos(angle), -torch.sin(angle)]),
+    torch.stack([torch.tensor(0.0, device=angle.device, dtype=datatype), torch.sin(angle), torch.cos(angle)])
     ])
 
 def roty(angle):
@@ -108,12 +109,12 @@ def roty(angle):
     if not isinstance(angle, torch.Tensor):
         angle = torch.tensor(angle)
     return torch.stack([
-    torch.stack([torch.cos(angle), torch.tensor(0.0, device=angle.device, dtype=torch.float64), torch.sin(angle)]),
+    torch.stack([torch.cos(angle), torch.tensor(0.0, device=angle.device, dtype=datatype), torch.sin(angle)]),
     torch.stack(
-                [torch.tensor(0.0, device=angle.device, dtype=torch.float64), 
-                torch.tensor(1.0, device=angle.device, dtype=torch.float64), 
-                torch.tensor(0.0, device=angle.device, dtype=torch.float64)]),
-    torch.stack([-torch.sin(angle), torch.tensor(0.0, device=angle.device, dtype=torch.float64), torch.cos(angle)])
+                [torch.tensor(0.0, device=angle.device, dtype=datatype), 
+                torch.tensor(1.0, device=angle.device, dtype=datatype), 
+                torch.tensor(0.0, device=angle.device, dtype=datatype)]),
+    torch.stack([-torch.sin(angle), torch.tensor(0.0, device=angle.device, dtype=datatype), torch.cos(angle)])
     ])
 
 def rotz(angle):
@@ -125,14 +126,14 @@ def rotz(angle):
     - rotation (torch.tensor): Rotation matrix.
     """
     if not isinstance(angle, torch.Tensor):
-        angle = torch.tensor(angle, dtype=torch.float64)
+        angle = torch.tensor(angle, dtype=datatype)
     return torch.stack([
-    torch.stack([torch.cos(angle), -torch.sin(angle), torch.tensor(0.0, device=angle.device, dtype=torch.float64)]),
-    torch.stack([torch.sin(angle), torch.cos(angle), torch.tensor(0.0, device=angle.device, dtype=torch.float64)]),
+    torch.stack([torch.cos(angle), -torch.sin(angle), torch.tensor(0.0, device=angle.device, dtype=datatype)]),
+    torch.stack([torch.sin(angle), torch.cos(angle), torch.tensor(0.0, device=angle.device, dtype=datatype)]),
     torch.stack(
-                [torch.tensor(0.0, device=angle.device, dtype=torch.float64), 
-                torch.tensor(0.0, device=angle.device, dtype=torch.float64), 
-                torch.tensor(1.0, device=angle.device, dtype=torch.float64)])
+                [torch.tensor(0.0, device=angle.device, dtype=datatype), 
+                torch.tensor(0.0, device=angle.device, dtype=datatype), 
+                torch.tensor(1.0, device=angle.device, dtype=datatype)])
     ])
 
 
@@ -145,7 +146,7 @@ def compare_rotation_times(ntrials=10000):
         beta = torch.rand(1)[0]
         gamma = torch.rand(1)[0]
         #R1 = torch.mm(torch.mm(rotz(gamma), roty(beta)), rotx(alpha))
-        R2 = euler_angles_to_matrix(torch.tensor([gamma, beta, alpha], dtype=torch.float64), 'ZYX')
+        R2 = euler_angles_to_matrix(torch.tensor([gamma, beta, alpha], dtype=datatype), 'ZYX')
     endtime = time.perf_counter()
     print(f'Average time for euler_angles_to_matrix(): {(endtime - starttime) / ntrials}')
     starttime = time.perf_counter()
@@ -155,13 +156,13 @@ def compare_rotation_times(ntrials=10000):
         beta = torch.rand(1)[0]
         gamma = torch.rand(1)[0]
         R1 = torch.mm(torch.mm(rotz(gamma), roty(beta)), rotx(alpha))
-        #R2 = euler_angles_to_matrix(torch.tensor([gamma, beta, alpha], dtype=torch.float64), 'ZYX')
+        #R2 = euler_angles_to_matrix(torch.tensor([gamma, beta, alpha], dtype=datatype), 'ZYX')
     endtime = time.perf_counter()
     print(f'Average time for get_rot_mat(): {(endtime - starttime) / ntrials}')
   
 def get_rot_mat(alpha, beta, gamma):
         # First rotate
-        return euler_angles_to_matrix(torch.tensor([gamma, beta, alpha], dtype=torch.float64), "ZYX")
+        return euler_angles_to_matrix(torch.tensor([gamma, beta, alpha], dtype=datatype), "ZYX")
         #return torch.mm(torch.mm(rotz(gamma), roty(beta)), rotx(alpha)) # Rotation matrix: this is 2x slower than euler_angles_to_matrix
 
 def closest_distance_from_point(point, ray):
@@ -211,23 +212,23 @@ class Ray():
             good_rays_mask = torch.linalg.vector_norm(direction, dim=0) > 1e-1
             direction[:,good_rays_mask] = direction[:,good_rays_mask] / torch.linalg.vector_norm(direction[:,good_rays_mask], dim=0)
             direction[:,~good_rays_mask] = 0.
-            self.direction = direction.to(torch.float64)
+            self.direction = direction.to(datatype)
 
         if (origin is not None) and (target is not None):
             self.build_ray(origin=origin, target=target)
 
         if (origin is None) and (direction is None) and (target is None):
             if not isinstance(origin, torch.Tensor):
-                origin = torch.tensor(origin, dtype=torch.float64, requires_grad=True)
+                origin = torch.tensor(origin, dtype=datatype, requires_grad=True)
                 if len(origin.shape) == 1:
                     origin = origin.reshape((3, 1))
                 if not isinstance(direction, torch.Tensor):
-                    direction = torch.tensor(direction, dtype=torch.float64, requires_grad=True)
+                    direction = torch.tensor(direction, dtype=datatype, requires_grad=True)
                     if len(direction.shape) == 1:
                         direction = direction.reshape((3, 1))
             self.origin = origin
             self.direction = direction
-        self.t = torch.ones((self.direction.shape[1], 1), dtype=torch.float64, device=origin.device)
+        self.t = torch.ones((self.direction.shape[1], 1), dtype=datatype, device=origin.device)
 
     def size(self):
         return self.direction.shape
@@ -240,17 +241,17 @@ class Ray():
         - point2 (2-D list): Second point.
         """
         if not isinstance(origin, torch.Tensor):
-            origin = torch.tensor(origin, dtype=torch.float64, requires_grad=True)
+            origin = torch.tensor(origin, dtype=datatype, requires_grad=True)
             if len(origin.shape) == 1:
                 origin = origin.reshape((3, 1))
         if not isinstance(target, torch.Tensor):
-            point2 = torch.tensor(target, dtype=torch.float64, requires_grad=True)
+            target = torch.tensor(target, dtype=datatype, requires_grad=True)
             if len(target.shape) == 1:
                 target = target.reshape((3, 1))
 
         self.origin = origin
         self.direction = (target - origin) / torch.linalg.vector_norm(target - origin, dim=0)
-        self.t = torch.ones((self.direction.shape[1], 1), dtype=torch.float64, device=origin.device)
+        self.t = torch.ones((self.direction.shape[1], 1), dtype=datatype, device=origin.device)
         
     def distance_to_point(self, point):
         """
@@ -261,7 +262,7 @@ class Ray():
         - distance (2-D list): Distance of the ray to the point.
         """
         if not isinstance(point, torch.Tensor):
-            point = torch.tensor(point, dtype=torch.float64, requires_grad=True)
+            point = torch.tensor(point, dtype=datatype, requires_grad=True)
             if len(point.shape) == 1:
                 point = point.reshape((3, 1))
         distance = torch.linalg.cross(self.direction, (point - self.origin), dim=0)
@@ -339,18 +340,18 @@ class Plane(nn.Module):
         """        
 
         if not isinstance(a, torch.Tensor):
-            a = torch.tensor(a, dtype=torch.float64)
+            a = torch.tensor(a, dtype=datatype)
         if not isinstance(b, torch.Tensor):
-            b = torch.tensor(b, dtype=torch.float64)
+            b = torch.tensor(b, dtype=datatype)
 
         self.a = a
         self.b = b        
 
         if center is None:
-            center = torch.tensor([0., 0., 0.], dtype=torch.float64)
+            center = torch.tensor([0., 0., 0.], dtype=datatype)
 
         if not isinstance(center, torch.Tensor):
-            center = torch.tensor(center, dtype=torch.float64)
+            center = torch.tensor(center, dtype=datatype)
         
         if len(center.shape) == 1:
             center = center.reshape((3, 1))
@@ -360,18 +361,18 @@ class Plane(nn.Module):
         self.center = center        
         if axes is None:
             if not isinstance(alpha, torch.Tensor):
-                alpha = torch.tensor(alpha, dtype=torch.float64)
-                beta = torch.tensor(beta, dtype=torch.float64)
-                gamma = torch.tensor(gamma, dtype=torch.float64)
+                alpha = torch.tensor(alpha, dtype=datatype)
+                beta = torch.tensor(beta, dtype=datatype)
+                gamma = torch.tensor(gamma, dtype=datatype)
 
-            if alpha.dtype != torch.float64:
-                alpha = alpha.to(torch.float64)
-                beta = beta.to(torch.float64)
-                gamma = gamma.to(torch.float64)
+            if alpha.dtype != datatype:
+                alpha = alpha.to(datatype)
+                beta = beta.to(datatype)
+                gamma = gamma.to(datatype)
             rot_mat =  get_rot_mat(alpha, beta, gamma) # Rotation matrix
             axes = torch.mm(
                 rot_mat,
-                torch.tensor([[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]], dtype=torch.float64, device=self.axes.device)
+                torch.tensor([[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]], dtype=datatype, device=self.axes.device)
                 )
         self.axes = axes
         self.a = self.a.to(device=self.axes.device)
@@ -414,12 +415,12 @@ class Plane(nn.Module):
         #NOTE: You need the original vertical direction in case the plane has been rotate
         """
         if not isinstance(original_horizontal_direction, torch.Tensor):
-            original_horizontal_direction = torch.tensor([0., 0., -1.], dtype=torch.float64, device=self.center.device).unsqueeze(-1)
+            original_horizontal_direction = torch.tensor([0., 0., -1.], dtype=datatype, device=self.center.device).unsqueeze(-1)
         if not isinstance(original_horizontal_direction, torch.Tensor):
-            original_horizontal_direction = torch.tensor(original_horizontal_direction, dtype=torch.float64, device=self.center.device)
+            original_horizontal_direction = torch.tensor(original_horizontal_direction, dtype=datatype, device=self.center.device)
         if len(original_horizontal_direction.shape) == 1:
             original_horizontal_direction = original_horizontal_direction.unsqueeze(-1)
-        #horizontal_direction = torch.tensor([0., 0., -1.], dtype=torch.float64).unsqueeze(-1)
+        #horizontal_direction = torch.tensor([0., 0., -1.], dtype=datatype).unsqueeze(-1)
         if rot_mat is None:
             #rot_mat = rotz(self.gamma) @ roty(self.beta) @ rotx(self.alpha) # Rotation matrix        
             rot_mat =  get_rot_mat(self.alpha, self.beta, self.gamma)
@@ -432,12 +433,12 @@ class Plane(nn.Module):
         #NOTE: You need the original vertical direction in case the plane has been rotated
         """
         if original_vertical_direction is None:
-            original_vertical_direction = torch.tensor([0., 1., 0.], dtype=torch.float64, device=self.alpha.device).unsqueeze(-1)
+            original_vertical_direction = torch.tensor([0., 1., 0.], dtype=datatype, device=self.alpha.device).unsqueeze(-1)
         if not isinstance(original_vertical_direction, torch.Tensor):
-            original_vertical_direction = torch.tensor(original_vertical_direction, dtype=torch.float64, device=self.alpha.device)
+            original_vertical_direction = torch.tensor(original_vertical_direction, dtype=datatype, device=self.alpha.device)
         if len(original_vertical_direction.shape) == 1:
             original_vertical_direction = original_vertical_direction.unsqueeze(-1)
-        #vertical_direction = torch.tensor([0., 1., 0.], dtype=torch.float64).unsqueeze(-1)
+        #vertical_direction = torch.tensor([0., 1., 0.], dtype=datatype).unsqueeze(-1)
         if rot_mat is None:
             #rot_mat = rotz(self.gamma) @ roty(self.beta) @ rotx(self.alpha) # Rotation matrix        
             rot_mat =  get_rot_mat(self.alpha, self.beta, self.gamma)
@@ -469,10 +470,10 @@ class Plane(nn.Module):
                             side parallel to Z-axis and in the negative Y region
         """
 
-        side1 = torch.tensor([[0., self.a/2, self.b/2], [0., -self.a / 2, self.b / 2]], device=alpha.device, dtype=torch.float64).T 
-        side2 = torch.tensor([[0., self.a/2, -self.b/2], [0., -self.a / 2, -self.b / 2]], device=alpha.device, dtype=torch.float64).T 
-        side3 = torch.tensor([[0., self.a/2, self.b/2], [0., self.a/2, -self.b/2]], device=alpha.device, dtype=torch.float64).T 
-        side4 = torch.tensor([[0., -self.a/2, self.b/2], [0., -self.a/2, -self.b/2]],device=alpha.device, dtype=torch.float64).T 
+        side1 = torch.tensor([[0., self.a/2, self.b/2], [0., -self.a / 2, self.b / 2]], device=alpha.device, dtype=datatype).T 
+        side2 = torch.tensor([[0., self.a/2, -self.b/2], [0., -self.a / 2, -self.b / 2]], device=alpha.device, dtype=datatype).T 
+        side3 = torch.tensor([[0., self.a/2, self.b/2], [0., self.a/2, -self.b/2]], device=alpha.device, dtype=datatype).T 
+        side4 = torch.tensor([[0., -self.a/2, self.b/2], [0., -self.a/2, -self.b/2]],device=alpha.device, dtype=datatype).T 
 
         if alpha is None:
             alpha = 0
@@ -574,7 +575,7 @@ class Plane(nn.Module):
         Visualize the plane by plotting the sides and 500 points lying on the plane.
         """
         rot_mat =  get_rot_mat(self.alpha, self.beta, self.gamma) # Rotation matrix  
-        sampled_points = torch.rand(3, 500).to(device=rot_mat.device, dtype=torch.float64)
+        sampled_points = torch.rand(3, 500).to(device=rot_mat.device, dtype=datatype)
         sampled_points[0,:] = 0
         sampled_points[1,:] = sampled_points[1,:] * self.a - self.a / 2
         sampled_points[2,:] = sampled_points[2,:] * self.b - self.b / 2
@@ -655,9 +656,9 @@ class RefractingPlane(Plane, nn.Module):
         """
 
         if not isinstance(refractive_idx_1, torch.Tensor):
-            refractive_idx_1 = torch.tensor(refractive_idx_1, dtype=torch.float64)
+            refractive_idx_1 = torch.tensor(refractive_idx_1, dtype=datatype)
         if not isinstance(refractive_idx_2, torch.Tensor):
-            refractive_idx_2 = torch.tensor(refractive_idx_2, dtype=torch.float64)
+            refractive_idx_2 = torch.tensor(refractive_idx_2, dtype=datatype)
 
         self.refractive_idx_1 = refractive_idx_1
         self.refractive_idx_2 = refractive_idx_2                    
@@ -772,23 +773,23 @@ class Camera(Plane, nn.Module):
             gamma = 0.
         
         if not isinstance(principal_point_pixel, torch.Tensor):
-            principal_point_pixel = torch.tensor(principal_point_pixel, dtype=torch.float64)
+            principal_point_pixel = torch.tensor(principal_point_pixel, dtype=datatype)
             if len(principal_point_pixel.shape) == 1:
                 principal_point_pixel = principal_point_pixel.reshape((2, 1))
 
         if not isinstance(aperture, torch.Tensor):
-            aperture = torch.tensor(aperture).to(device=principal_point_pixel.device, dtype=torch.float64)
+            aperture = torch.tensor(aperture).to(device=principal_point_pixel.device, dtype=datatype)
             if len(aperture.shape) == 1:
                 aperture = aperture.reshape((3, 1))
 
         axes=torch.tensor([
                 [0., 1., 0.],
                 [0., 0., 1.],
-                [1., 0., 0.]]).to(torch.float64).device(principal_point_pixel.device)
+                [1., 0., 0.]]).to(datatype).device(principal_point_pixel.device)
         
         super(Camera, self).__init__(axes=axes, center=[0.,0.,0], alpha=alpha, beta=beta, gamma=gamma, a=width, b=height)
         if principal_point_pixel is None:
-            principal_point_pixel = torch.tensor([width/pixel_size/2, height/pixel_size/2.], dtype=torch.float64)[:, None]
+            principal_point_pixel = torch.tensor([width/pixel_size/2, height/pixel_size/2.], dtype=datatype)[:, None]
 
         self.aperture = aperture
         self.focal_length_pixels = focal_length_pixels
@@ -798,28 +799,28 @@ class Camera(Plane, nn.Module):
         self.principal_point = None
         self.get_principal_point_from_aperture()
         self.principal_point_pixel = principal_point_pixel
-        self.r1 = nn.Parameter(torch.tensor(r1).to(torch.float64), requires_grad=True, device=principal_point_pixel.device) # Radial distortion parameter
-        self.r1d = nn.Parameter(torch.tensor(0., dtype=torch.float64), requires_grad=True, device=principal_point_pixel.device)
-        self.r2d = nn.Parameter(torch.tensor(0., dtype=torch.float64), requires_grad=True, device=principal_point_pixel.device)
-        self.r1u = nn.Parameter(torch.tensor(0., dtype=torch.float64), requires_grad=True, device=principal_point_pixel.device)
-        self.r2u = nn.Parameter(torch.tensor(0., dtype=torch.float64), requires_grad=True, device=principal_point_pixel.device)
+        self.r1 = nn.Parameter(torch.tensor(r1).to(datatype), requires_grad=True, device=principal_point_pixel.device) # Radial distortion parameter
+        self.r1d = nn.Parameter(torch.tensor(0., dtype=datatype), requires_grad=True, device=principal_point_pixel.device)
+        self.r2d = nn.Parameter(torch.tensor(0., dtype=datatype), requires_grad=True, device=principal_point_pixel.device)
+        self.r1u = nn.Parameter(torch.tensor(0., dtype=datatype), requires_grad=True, device=principal_point_pixel.device)
+        self.r2u = nn.Parameter(torch.tensor(0., dtype=datatype), requires_grad=True, device=principal_point_pixel.device)
         self.update_camera_center()
         input_size = 1
         hidden_size = 4
         output_size = 1
         self.dist_layer = nn.Sequential(
-            nn.Linear(input_size, hidden_size, dtype=torch.float64),  # First layer
+            nn.Linear(input_size, hidden_size, dtype=datatype),  # First layer
             nn.ReLU(),                           # Activation function
-            nn.Linear(hidden_size, hidden_size, dtype=torch.float64),
+            nn.Linear(hidden_size, hidden_size, dtype=datatype),
             nn.ReLU(),
-            nn.Linear(hidden_size, output_size, dtype=torch.float64),  # Output layer
+            nn.Linear(hidden_size, output_size, dtype=datatype),  # Output layer
         )
         self.undist_layer = nn.Sequential(
-            nn.Linear(input_size, hidden_size, dtype=torch.float64),  # First layer
+            nn.Linear(input_size, hidden_size, dtype=datatype),  # First layer
             nn.ReLU(),                           # Activation function
-            nn.Linear(hidden_size, hidden_size, dtype=torch.float64),
+            nn.Linear(hidden_size, hidden_size, dtype=datatype),
             nn.ReLU(),
-            nn.Linear(hidden_size, output_size, dtype=torch.float64),  # Output layer
+            nn.Linear(hidden_size, output_size, dtype=datatype),  # Output layer
         )
                 
         # Plane (defining the camera) center should be shifted so that the principal point is along the normal plane through the aperture
@@ -837,9 +838,9 @@ class Camera(Plane, nn.Module):
     def reproject(self, world_coordinate, R, T):
         # R is the camera rotation matrix
         intrinsic_matrix = torch.stack(
-            [torch.stack([self.focal_length_pixels, torch.tensor(0.).to(self.principal_point_pixel.device, torch.float64), self.principal_point_pixel[0,0]]), 
-             torch.stack([torch.tensor(0.).to(self.principal_point_pixel.device, torch.float64), self.focal_length_pixels, self.principal_point_pixel[1,0]]), 
-             torch.stack([torch.tensor(0.).to(self.principal_point_pixel.device, torch.float64), torch.tensor(0.).to(self.principal_point_pixel.device, torch.float64), torch.tensor(1.).to(self.principal_point_pixel.device, torch.float64)])]
+            [torch.stack([self.focal_length_pixels, torch.tensor(0.).to(self.principal_point_pixel.device, datatype), self.principal_point_pixel[0,0]]), 
+             torch.stack([torch.tensor(0.).to(self.principal_point_pixel.device, datatype), self.focal_length_pixels, self.principal_point_pixel[1,0]]), 
+             torch.stack([torch.tensor(0.).to(self.principal_point_pixel.device, datatype), torch.tensor(0.).to(self.principal_point_pixel.device, datatype), torch.tensor(1.).to(self.principal_point_pixel.device, datatype)])]
              )
         world_coordinate = torch.vstack((world_coordinate,
                                           torch.ones(1,world_coordinate.shape[1])))
@@ -858,7 +859,7 @@ class Camera(Plane, nn.Module):
         Converts pixel coordinates to world coordinates and initializes a ray.
         """
         if not isinstance(pixel, torch.Tensor):
-            pixel = torch.tensor(pixel, dtype=torch.float64, device=self.principal_point_pixel.device)
+            pixel = torch.tensor(pixel, dtype=datatype, device=self.principal_point_pixel.device)
             if len(pixel.shape) == 1:
                 pixel = pixel.reshape((2, 1))
         pixels = self.pixels_to_world(pixel)
@@ -892,7 +893,7 @@ class Camera(Plane, nn.Module):
         self.aperture = self.center
         self.center = self.aperture - focal_length * self.axes[:,0].unsqueeze(-1)
         self.center = self.center + torch.cat((
-            self.principal_point_pixel[:,0] * self.pixel_size - torch.stack([self.a/2, self.b/2]), torch.tensor([0.]).to(torch.float64, self.principal_point_pixel.device)))[:, None]
+            self.principal_point_pixel[:,0] * self.pixel_size - torch.stack([self.a/2, self.b/2]), torch.tensor([0.]).to(datatype, self.principal_point_pixel.device)))[:, None]
         self.get_principal_point_from_aperture()
         
 
@@ -958,7 +959,7 @@ class Camera(Plane, nn.Module):
         self.get_principal_point_from_aperture()
         self.update_camera_center()
         if not isinstance(pixel, torch.Tensor):
-            pixel = torch.tensor(pixel, dtype=torch.float64, device=self.principal_point_pixel.device)
+            pixel = torch.tensor(pixel, dtype=datatype, device=self.principal_point_pixel.device)
             if len(pixel.shape) == 1:
                 pixel = pixel.reshape((2, 1))
         r = torch.sqrt(torch.sum(pixel ** 2, dim=0))[None, :]
@@ -994,25 +995,26 @@ class EfficientCamera(Plane, nn.Module):
         if gamma is None:
             gamma = 0.
         
+        if principal_point_pixel is None:
+            principal_point_pixel = torch.tensor([width/pixel_size/2, height/pixel_size/2.], dtype=datatype)[:, None]            
+
         if not isinstance(principal_point_pixel, torch.Tensor):
-            principal_point_pixel = torch.tensor(principal_point_pixel, dtype=torch.float64)
+            principal_point_pixel = torch.tensor(principal_point_pixel, dtype=datatype)
             if len(principal_point_pixel.shape) == 1:
                 principal_point_pixel = principal_point_pixel.reshape((2, 1))
 
 
         if not isinstance(aperture, torch.Tensor):
-            aperture = torch.tensor(aperture).to(device=principal_point_pixel.device, dtype=torch.float64)
+            aperture = torch.tensor(aperture).to(device=principal_point_pixel.device, dtype=datatype)
             if len(aperture.shape) == 1:
                 aperture = aperture.reshape((3, 1))
 
         axes=torch.tensor([
                 [0., 1., 0.],
                 [0., 0., 1.],
-                [1., 0., 0.]]).to(dtype=torch.float64, device=principal_point_pixel.device)
+                [1., 0., 0.]]).to(dtype=datatype, device=principal_point_pixel.device)
         
-        super(EfficientCamera, self).__init__(axes=axes, center=[0.,0.,0], alpha=alpha, beta=beta, gamma=gamma, a=width, b=height)
-        if principal_point_pixel is None:
-            principal_point_pixel = torch.tensor([width/pixel_size/2, height/pixel_size/2.], dtype=torch.float64)[:, None]
+        super(EfficientCamera, self).__init__(axes=axes, center=[0.,0.,0], alpha=alpha, beta=beta, gamma=gamma, a=width, b=height)        
 
         
         self.aperture = aperture
@@ -1024,10 +1026,10 @@ class EfficientCamera(Plane, nn.Module):
         self.get_principal_point_from_aperture()
         self.principal_point_pixel = principal_point_pixel
         self.r1 = r1 # Radial distortion parameter
-        self.r1d = nn.Parameter(torch.tensor(0., dtype=torch.float64, device=self.principal_point_pixel.device), requires_grad=False)
-        self.r2d = nn.Parameter(torch.tensor(0., dtype=torch.float64, device=self.principal_point_pixel.device), requires_grad=False)
-        self.r1u = nn.Parameter(torch.tensor(0., dtype=torch.float64, device=self.principal_point_pixel.device), requires_grad=False)
-        self.r2u = nn.Parameter(torch.tensor(0., dtype=torch.float64, device=self.principal_point_pixel.device), requires_grad=False)
+        self.r1d = nn.Parameter(torch.tensor(0., dtype=datatype, device=self.principal_point_pixel.device), requires_grad=False)
+        self.r2d = nn.Parameter(torch.tensor(0., dtype=datatype, device=self.principal_point_pixel.device), requires_grad=False)
+        self.r1u = nn.Parameter(torch.tensor(0., dtype=datatype, device=self.principal_point_pixel.device), requires_grad=False)
+        self.r2u = nn.Parameter(torch.tensor(0., dtype=datatype, device=self.principal_point_pixel.device), requires_grad=False)
         #self.radial_dist_coeffs = radial_dist_coeffs # (2,) tensor
         self.update_camera_center()
         
@@ -1036,23 +1038,23 @@ class EfficientCamera(Plane, nn.Module):
         hidden_size = 8
         
         self.dist_layer = nn.Sequential(
-            nn.Linear(input_size, hidden_size, dtype=torch.float64),  # First layer
+            nn.Linear(input_size, hidden_size, dtype=datatype),  # First layer
             nn.LeakyReLU(),                           # Activation function
-            nn.Linear(hidden_size, hidden_size, dtype=torch.float64),
+            nn.Linear(hidden_size, hidden_size, dtype=datatype),
             nn.LeakyReLU(),
-            nn.Linear(hidden_size, hidden_size, dtype=torch.float64),
+            nn.Linear(hidden_size, hidden_size, dtype=datatype),
             nn.LeakyReLU(),
-            nn.Linear(hidden_size, output_size, dtype=torch.float64),  # Output layer
+            nn.Linear(hidden_size, output_size, dtype=datatype),  # Output layer
             nn.ReLU(),
         )
         self.undist_layer = nn.Sequential(
-            nn.Linear(input_size, hidden_size, dtype=torch.float64),  # First layer
+            nn.Linear(input_size, hidden_size, dtype=datatype),  # First layer
             nn.LeakyReLU(),                           # Activation function
-            nn.Linear(hidden_size, hidden_size, dtype=torch.float64),
+            nn.Linear(hidden_size, hidden_size, dtype=datatype),
             nn.LeakyReLU(),
-            nn.Linear(hidden_size, hidden_size, dtype=torch.float64),
+            nn.Linear(hidden_size, hidden_size, dtype=datatype),
             nn.LeakyReLU(),
-            nn.Linear(hidden_size, output_size, dtype=torch.float64),  # Output layer
+            nn.Linear(hidden_size, output_size, dtype=datatype),  # Output layer
             nn.ReLU(),
         )
         
@@ -1072,6 +1074,7 @@ class EfficientCamera(Plane, nn.Module):
 
 
     def undistort_pixels_classical(self, pixels_distorted, distortion_params_):
+        #return pixels_distorted
         max_iterations = 100
         tolerance = 1e-14
         pixels_distorted = self.normalize_pixels(pixels_distorted)
@@ -1082,8 +1085,9 @@ class EfficientCamera(Plane, nn.Module):
             # Calculate the radial distance squared
             r2 = pixels_undistorted[0, :] ** 2 + pixels_undistorted[1, :] ** 2
             r4 = r2 ** 2
+            r6 = r2 * r4
             # Calculate the radial distortion factor
-            radial_distortion = 1 + distortion_params_[0] * r2 + distortion_params_[1] * r4
+            radial_distortion = 1 + distortion_params_[0] * r2 + distortion_params_[1] * r4 + distortion_params_[2] * r6
             # Update undistorted coordinates
             pixels_undistorted_new = pixels_distorted / radial_distortion
             
@@ -1099,10 +1103,12 @@ class EfficientCamera(Plane, nn.Module):
     
     
     def distort_pixels_classical(self, pixels_undistorted, distortion_params_):
+        #return pixels_undistorted
         pixels_undistorted = self.normalize_pixels(pixels_undistorted)
         r2 = pixels_undistorted[0, :] ** 2 + pixels_undistorted[1, :] ** 2
         r4 = r2 ** 2
-        radial_distortion = 1 + distortion_params_[0] * r2 + distortion_params_[1] * r4 
+        r6 = r2 * r4
+        radial_distortion = 1 + distortion_params_[0] * r2 + distortion_params_[1] * r4 + distortion_params_[2] * r6
         return self.unnormalize_pixels(pixels_undistorted * radial_distortion)
 
 
@@ -1115,9 +1121,9 @@ class EfficientCamera(Plane, nn.Module):
     def reproject(self, world_coordinate, R, T):
         # R is the camera rotation matrix
         intrinsic_matrix = torch.stack(
-            [torch.stack([self.focal_length_pixels, torch.tensor(0.).to(dtype=torch.float64, device=self.principal_point_pixel.device), self.principal_point_pixel[0,0]]), 
-             torch.stack([torch.tensor(0.).to(dtype=torch.float64, device=self.principal_point_pixel.device), self.focal_length_pixels, self.principal_point_pixel[1,0]]), 
-             torch.stack([torch.tensor(0.).to(dtype=torch.float64, device=self.principal_point_pixel.device), torch.tensor(0.).to(dtype=torch.float64, device=self.principal_point_pixel.device), torch.tensor(1.).to(dtype=torch.float64, device=self.principal_point_pixel.device)])]
+            [torch.stack([self.focal_length_pixels, torch.tensor(0.).to(dtype=datatype, device=self.principal_point_pixel.device), self.principal_point_pixel[0,0]]), 
+             torch.stack([torch.tensor(0.).to(dtype=datatype, device=self.principal_point_pixel.device), self.focal_length_pixels, self.principal_point_pixel[1,0]]), 
+             torch.stack([torch.tensor(0.).to(dtype=datatype, device=self.principal_point_pixel.device), torch.tensor(0.).to(dtype=datatype, device=self.principal_point_pixel.device), torch.tensor(1.).to(dtype=datatype, device=self.principal_point_pixel.device)])]
              )
         world_coordinate = torch.vstack((world_coordinate,
                                           torch.ones(1,world_coordinate.shape[1]).to(world_coordinate.device)))
@@ -1136,7 +1142,7 @@ class EfficientCamera(Plane, nn.Module):
         Converts pixel coordinates to world coordinates and initializes a ray.
         """
         if not isinstance(pixel, torch.Tensor):
-            pixel = torch.tensor(pixel, dtype=torch.float64, device=self.principal_point_pixel.device)
+            pixel = torch.tensor(pixel, dtype=datatype, device=self.principal_point_pixel.device)
             if len(pixel.shape) == 1:
                 pixel = pixel.reshape((2, 1))
         pixels = self.pixels_to_world(pixel)
@@ -1169,7 +1175,7 @@ class EfficientCamera(Plane, nn.Module):
         self.aperture = self.center
         self.center = self.aperture - focal_length * self.axes[:,0].unsqueeze(-1)
         self.center = self.center + torch.cat((
-            self.principal_point_pixel[:,0] * self.pixel_size - torch.stack([self.a/2, self.b/2]), torch.tensor([0.]).to(dtype=torch.float64, device=self.principal_point_pixel.device)))[:, None]
+            self.principal_point_pixel[:,0] * self.pixel_size - torch.stack([self.a/2, self.b/2]), torch.tensor([0.]).to(dtype=datatype, device=self.principal_point_pixel.device)))[:, None]
         self.get_principal_point_from_aperture()
         
 
@@ -1247,7 +1253,7 @@ class EfficientCamera(Plane, nn.Module):
 
     def forward(self, pixel):
         if not isinstance(pixel, torch.Tensor):
-            pixel = torch.tensor(pixel, dtype=torch.float64, device=self.principal_point_pixel.device)
+            pixel = torch.tensor(pixel, dtype=datatype, device=self.principal_point_pixel.device)
             if len(pixel.shape) == 1:
                 pixel = pixel.reshape((2, 1))
         ray_direction = self.get_ray_direction(pixel)
@@ -1308,7 +1314,7 @@ class PrismMirror(nn.Module):
         super(PrismMirror, self).__init__()
         if not isinstance(prism_center, torch.Tensor):
             prism_center = torch.tensor(prism_center, 
-                                        dtype=torch.float64)
+                                        dtype=datatype)
             if len(prism_center.shape) == 1:
                 prism_center = prism_center.reshape((3, 1))        
 
@@ -1316,25 +1322,28 @@ class PrismMirror(nn.Module):
         if not isinstance(refractive_index_glass, torch.Tensor):
             refractive_index_glass = torch.tensor(
                                                 refractive_index_glass,
-                                                dtype=torch.float64)
+                                                dtype=datatype)
         
         if not isinstance(prism_size, torch.Tensor):         
             prism_size = torch.tensor(prism_size, 
-                                        dtype=torch.float64)
+                                        dtype=datatype)
 
         self.prism_size = prism_size
         #self.prism_angles = prism_angles # Angles are deprecated
         self.prism_center = prism_center
         self.refractive_index_glass = refractive_index_glass
         self.refractive_index_air = refractive_index_air
-        self.prism_rotation_6d = prism_rotation_6d
+        if prism_rotation_6d is not None:
+            self.prism_rotation_6d = prism_rotation_6d
+        else:
+            self.prism_rotation_6d = Rotation6D(0.,0.,0.)
 
-    def get_planes(self, prism_center, prism_rotation_6d):       
+    def get_planes(self, prism_center, prism_rotation_6d):
         #prism_alpha, prism_beta, prism_gamma = prism_angles
         #rot_mat = get_rot_mat(prism_alpha, prism_beta, prism_gamma)
         rot_mat = prism_rotation_6d.matrix()
         axes1 = torch.mm(rot_mat, 
-                            torch.tensor([[1.,0.,0.], [0.,1.,0.], [0.,0.,1.]], device=self.prism_center.device, dtype=torch.float64).t()
+                            torch.tensor([[1.,0.,0.], [0.,1.,0.], [0.,0.,1.]], device=self.prism_center.device, dtype=datatype).t()
                             )        
         plane1 = RefractingPlane(
                             refractive_idx_1=self.refractive_index_air,
@@ -1343,69 +1352,74 @@ class PrismMirror(nn.Module):
                             a=self.prism_size[0], 
                             b=self.prism_size[1],
                             center=prism_center,
-                            ) # Plane facing the camera
-
-        rot_mat_135 = get_rot_mat(torch.tensor(0.).to(device=self.prism_center.device, dtype=torch.float64),
-                                  3*pi.to(device=self.prism_center.device) / 4,
-                                  torch.tensor(0.).to(device=self.prism_center.device, dtype=torch.float64))
+                            ) # Plane facing the camera        
         
-        axes_135 = torch.mm(rot_mat_135, 
-                            torch.tensor([[1.,0.,0.], [0.,1.,0.], [0.,0.,1.]], device=self.prism_center.device, dtype=torch.float64).t()
-                            )
-        
-        axes2 = torch.mm(rot_mat, axes_135)
-        plane2_center = plane1.center - plane1.axes[:,0].unsqueeze(-1) * self.prism_size[1] / 2
-        plane2 = ReflectingPlane(
-                            axes=axes2,
-                            a=self.prism_size[0],
-                            b=self.prism_size[1] * torch.sqrt(torch.tensor(2.)),
-                            center=plane2_center,
-                            )
-        
-        rot_90 = get_rot_mat(torch.tensor(0.).to(device=self.prism_center.device, dtype=torch.float64),
+        rot_90 = get_rot_mat(torch.tensor(0.).to(device=self.prism_center.device, dtype=datatype),
                              pi.to(device=self.prism_center.device)/2,
-                             torch.tensor(0.).to(device=self.prism_center.device, dtype=torch.float64))
+                             torch.tensor(0.).to(device=self.prism_center.device, dtype=datatype))
 
         #rot_90 = get_rot_mat(plane3_angles[0],
         #                     pi/2 + self.plane3_angles[1],
         #                     plane3_angles[2])
         
         axes3 = torch.mm(rot_90,
-                            torch.tensor([[1.,0.,0.], [0.,1.,0.], [0.,0.,1.]], device=self.prism_center.device, dtype=torch.float64).t()
+                            torch.tensor([[1.,0.,0.], [0.,1.,0.], [0.,0.,1.]], device=self.prism_center.device, dtype=datatype).t()
                             )
         axes3 = torch.mm(rot_mat, axes3)
-
-        plane3_center = plane2.center + plane1.axes[:,2].unsqueeze(-1) * self.prism_size[1] / 2        
+        
+        plane3_center = plane1.center + plane1.axes[:,2].unsqueeze(-1) * self.prism_size[1] / 2 - plane1.axes[:,0].unsqueeze(-1) * self.prism_size[2] / 2       
         plane3 = RefractingPlane(
                             refractive_idx_1=self.refractive_index_glass,
                             refractive_idx_2=self.refractive_index_air,
                             axes=axes3,
                             a = self.prism_size[0],
-                            b = self.prism_size[1],
+                            b = self.prism_size[2],
                             center=plane3_center,
                             )
+        
+        rot_mat_135 = get_rot_mat(torch.tensor(0.).to(device=self.prism_center.device, dtype=datatype),
+                                  3*pi.to(device=self.prism_center.device) / 4,
+                                  torch.tensor(0.).to(device=self.prism_center.device, dtype=datatype))        
+        axes_135 = torch.mm(rot_mat_135, 
+                            torch.tensor([[1.,0.,0.], [0.,1.,0.], [0.,0.,1.]], device=self.prism_center.device, dtype=datatype).t()
+                            )        
+        axes2 = torch.mm(rot_mat, axes_135)
+        plane2_center = plane1.center - plane1.axes[:,0].unsqueeze(-1) * self.prism_size[2] / 2
+        axes2 = torch.zeros_like(axes1)
+        axes2[:,0] = -axes1[:,0] * self.prism_size[1] + axes3[:,0] * self.prism_size[2]
+        axes2[:,1] = axes1[:,1].clone()
+        axes2[:,2] = -axes1[:,2] * self.prism_size[1] + axes3[:,2] * self.prism_size[2]
+        axes2 = axes2 / torch.linalg.norm(axes2, dim=0)
+
+        plane2 = ReflectingPlane(
+                            axes=axes2,
+                            a=self.prism_size[0],
+                            b=torch.sqrt(self.prism_size[2]**2 + self.prism_size[1]**2) ,
+                            center=plane2_center,
+                            )    
+    
         return plane1, plane2, plane3
     
    
     def rotate_prism(self, alpha=0., beta=0., gamma=0.):
         if not isinstance(alpha, torch.Tensor):
-            alpha = torch.tensor(alpha, device = self.prism_angles.device, dtype=torch.float64)
+            alpha = torch.tensor(alpha, device = self.prism_angles.device, dtype=datatype)
         if not isinstance(beta, torch.Tensor):
-            beta = torch.tensor(beta, device = self.prism_angles.device, dtype=torch.float64)
+            beta = torch.tensor(beta, device = self.prism_angles.device, dtype=datatype)
         if not isinstance(gamma, torch.Tensor):
-            gamma = torch.tensor(gamma, device = self.prism_angles.device, dtype=torch.float64)
+            gamma = torch.tensor(gamma, device = self.prism_angles.device, dtype=datatype)
 
         alpha, beta, gamma, center = Plane().get_parameters_after_rotation(alpha=alpha, 
                                                                         beta=beta, 
                                                                         gamma=gamma, 
                                                                         center=self.prism_center)
         self.prism_center = center
-        self.prism_angles = torch.tensor([alpha, beta, gamma], device=self.prism_center.device, dtype=torch.float64)
+        self.prism_angles = torch.tensor([alpha, beta, gamma], device=self.prism_center.device, dtype=datatype)
     
     
     def move_prism(self, displacement):
         if not isinstance(displacement, torch.Tensor):
-            displacement = torch.tensor(displacement, device = self.prism_angles.device, dtype=torch.float64)
+            displacement = torch.tensor(displacement, device = self.prism_angles.device, dtype=datatype)
         if (len(displacement.shape) == 1):
             displacement = displacement.unsqueeze(-1)        
         self.prism_center_add(displacement)
@@ -1562,9 +1576,9 @@ if __name__=="__main__":
         calibration_results_file = 'ball_bearing_data.mat'
         calibration_results_path = os.path.join(calibration_results_dir, calibration_results_file)
         mat = sio.loadmat(calibration_results_path)
-        undistorted_real_pixels_cam_0 = torch.tensor(mat['output_data_cam_02_undistorted'], dtype=torch.float64, requires_grad=True).T - 1
-        undistorted_real_pixels_cam_1 = torch.tensor(mat['output_data_cam_13_undistorted'], dtype=torch.float64, requires_grad=True).T - 1
-        target_coordinates = torch.tensor(mat['input_data'], dtype=torch.float64).T
+        undistorted_real_pixels_cam_0 = torch.tensor(mat['output_data_cam_02_undistorted'], dtype=datatype, requires_grad=True).T - 1
+        undistorted_real_pixels_cam_1 = torch.tensor(mat['output_data_cam_13_undistorted'], dtype=datatype, requires_grad=True).T - 1
+        target_coordinates = torch.tensor(mat['input_data'], dtype=datatype).T
 
         principal_point_pixel_cam_0 = [638.040 - 1, 492.499 - 1] # This comes from the calibration results
         principal_point_pixel_cam_1 = [659.3778 - 1, 521.5078 - 1]
