@@ -1,4 +1,4 @@
-bsub -n 4 -J "recalibrate" -o recalibrate.log<< 'EOF'
+#bsub -n 8 -J "recalibrate" -o recalibrate.log<< 'EOF'
 #!/bin/bash
 conda activate
 source /groups/branson/bransonlab/aniket/pytorch_remote/bin/activate
@@ -22,9 +22,9 @@ for dir in ${exp_data_dir}/exp_*; do
         
 	exp_name=$(basename $dir)
         echo "Processing directory: $exp_name"
-	python runme_train_simulator_camera_prism_grid_distances.py --exp_id $exp_name
+	bsub -n 6 -J recalibrate_${exp_name} -o logs/recalibrate_${exp_name}.log python runme_train_simulator_camera_prism_grid_distances.py --exp_id $exp_name
     else
 	echo "Did not find: $dir"
     fi
 done
-EOF
+#EOF
