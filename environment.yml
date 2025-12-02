@@ -1,0 +1,14 @@
+name: RayCal
+channels:
+  - conda-forge
+  - pytorch3d
+dependencies:
+  - python=3.11.3
+  - pytorch3d
+  - tensorboard
+  - pip:
+    - matplotlib
+    - pillow
+    - scipy
+    - mpmath
+    - sympy
