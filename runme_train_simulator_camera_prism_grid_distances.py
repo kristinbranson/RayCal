@@ -42,23 +42,23 @@ class CalibrationDataset(Dataset):
     def __getitem__(self, idx):
         return self.data[idx], self.labels_2D[idx], self.labels_3D[idx], self.pairwise_distance[idx]
 
+log_file = ''
 
 #%% Parse input arguments
 parser = argparse.ArgumentParser()
 parser.add_argument("--exp_id", type=str, help="Path to the log file (should be a yaml file)", default='')
 parser.add_argument("--log_file", type=str, help="Path to the log file (should be a yaml file)", default='')
 parser.add_argument("--num_epochs", type=int, help="Number of training epochs", default=1000)
-
 calibration_scripts_logs = 'calibration_scripts_logs'
 os.makedirs(calibration_scripts_logs, exist_ok=True)
 args = parser.parse_args()
 exp_id = args.exp_id
-if 'exp_' in exp_id:
-    exp_id = exp_id.removeprefix("exp_")
 num_epochs = args.num_epochs
 log_file = args.log_file
-if log_file == '':
-    log_file = os.path.join(calibration_scripts_logs, f'exp_{exp_id}.yaml')
+
+#%%
+if 'exp_' in exp_id:
+    exp_id = exp_id.removeprefix("exp_")
 
 yaml_results = {}
 yaml_results['training'] = {}
@@ -67,12 +67,17 @@ yaml_results['plotting'] = {}
 yaml_results['training']['status'] = 'failed' # Change this to 'Successful' at the end of the script
 yaml_results['initialization']['status'] = 'failed' # Change this to 'Successful' after calculating initialization loss
 yaml_results['plotting']['status'] = 'failed'
-with open(log_file, 'w') as f:
-    yaml.safe_dump(yaml_results, f, sort_keys=False)
+
+#%%
+load_checkpoint = False
 
 #%% Load camera calibration results
-load_checkpoint = False
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if not load_checkpoint:
+    if log_file == '':
+        log_file = os.path.join('calibration_scripts_logs', f'exp_{exp_id}.yaml')
+    with open(log_file, 'w') as f:
+        yaml.safe_dump(yaml_results, f, sort_keys=False)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 device = torch.device("cpu") # Empirically, CPU seems to work faster for optimization
 print(f'Device: {device}')
 
@@ -127,7 +132,7 @@ os.makedirs(outputs_dir, exist_ok=True)
 now = datetime.datetime.now()
 
 if load_checkpoint:
-    model_checkpoint_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/refraction_model/calprism/outputs/model_checkpoints/exp_62_2025_9_4_12_12_48'
+    model_checkpoint_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/refraction_model/calprism/outputs/model_checkpoints/exp_69_2025_10_10_0_29_55'
     #model_checkpoint_dir = '/groups/branson/bransonlab/aniket/fly_walk_imaging/calibration_code/refraction_model/calprism/outputs/model_checkpoints/exp_62_2025_9_4_12_12_48'
 else:
     model_checkpoint_dir = f'{outputs_dir}/model_checkpoints/exp_{exp_id}_{now.year}_{now.month}_{now.day}_{now.hour}_{now.minute}_{now.second}'
@@ -153,7 +158,9 @@ stereoParams = mat['stereoParams_export']
 K1 = torch.tensor(stereoParams['CameraParameters1K'][0,0]).to(datatype).to(device)
 K2 = torch.tensor(stereoParams['CameraParameters2K'][0,0]).to(datatype).to(device)
 R = torch.tensor(stereoParams['RotationOfCamera2'][0,0]).to(datatype).to(device)
-T = torch.tensor(stereoParams['TranslationOfCamera2'][0,0]).to(datatype).T.to(device) + 0.
+T = torch.tensor(stereoParams['TranslationOfCamera2'][0,0]).to(datatype).T.to(device)
+radial_dist_coeffs_cam_0 = torch.tensor(stereoParams['RadialDistortionOfCamera1'][0,0]).to(datatype).T.to(device)
+radial_dist_coeffs_cam_1 = torch.tensor(stereoParams['RadialDistortionOfCamera2'][0,0]).to(datatype).T.to(device)
 
 principal_point_pixel_cam_0 = torch.tensor([K1[0,2] - 1, K1[1,2] - 1], dtype=datatype).to(device)
 principal_point_pixel_cam_1 = torch.tensor([K2[0,2] - 1, K2[1,2] - 1], dtype=datatype).to(device)
@@ -190,6 +197,7 @@ def freeze_stereocamera(arena):
     arena.principal_point_pixel_cam_1.requires_grad = False
     arena.stereo_camera_rotation_6d.rotation_6d.requires_grad = False
     arena.stereocam_r1.requires_grad = False
+    arena.T_stereo_cam.requires_grad = False
 
 def freeze_prism_parameters_subset(arena):
     arena.prism.prism_size.requires_grad = False
@@ -228,13 +236,34 @@ arena = Arena_reprojection_loss_two_cameras_prism_grid_distances(principal_point
             R,
             T, 
             prism_angles=prism_angles,
-            prism_center=prism_center)
+            prism_center=prism_center,
+            radial_dist_coeffs_cam_0=radial_dist_coeffs_cam_0,
+            radial_dist_coeffs_cam_1=radial_dist_coeffs_cam_1)
+plane1, _, _ = arena.prism.get_planes(
+    arena.prism.prism_center,
+    arena.prism.prism_rotation_6d
+)
+depth_axis = plane1.axes[:, 0]
+dx = 0
+dz = 0
+vertical_axis = plane1.axes[:, 2]
+prism_center = prism_center + dx * vertical_axis[:, None] + dz * depth_axis[:, None]
+arena = Arena_reprojection_loss_two_cameras_prism_grid_distances(principal_point_pixel_cam_0,
+            principal_point_pixel_cam_1, 
+            focal_length_cam_1, 
+            focal_length_cam_2,
+            R,
+            T, 
+            prism_angles=prism_angles,
+            prism_center=prism_center,
+            radial_dist_coeffs_cam_0=radial_dist_coeffs_cam_0,
+            radial_dist_coeffs_cam_1=radial_dist_coeffs_cam_1,
+            prism_size=torch.tensor([80., 20., 20.], dtype=datatype).to(device))
 pixels_virtual_two_cams = torch.vstack((virtual_pixels_cam_0, virtual_pixels_cam_1))
 pixels_real_two_cams = torch.vstack((undistorted_real_pixels_cam_0, undistorted_real_pixels_cam_1))
 freeze_camera_parameters(arena.camera1)
 freeze_stereocamera(arena)
 freeze_prism_parameters_subset(arena)
-
 
 if load_checkpoint:
     PATH = f'{model_checkpoint_dir}/best_checkpoint.pth'
@@ -334,6 +363,7 @@ def train_two_cams(model, train_loader, criterion, plot=False):
     reprojection_loss = 0.
     tr_loss = 0.
     pairwise_dist_loss = 0.
+    calibration_skew_loss = 0.
     
     with torch.autograd.set_detect_anomaly(True):
         # Iterate over minibatches
@@ -422,6 +452,7 @@ def train_two_cams(model, train_loader, criterion, plot=False):
                         recon_pixels_2_from_virtual,
                         label_2D_cam_1.T).sum()) / 4
             
+
             triangulation_loss = euclidean_distance(
                                     recon_3D, stacked_label_3D.T
                                 ).sum() / 2
@@ -431,7 +462,7 @@ def train_two_cams(model, train_loader, criterion, plot=False):
             closest_distance_loss = closest_distance.sum()
             tr_loss += triangulation_loss.item()            
             # Recon_real_loss is the pixel error between the reprojected 3D point from real pixels and the real pixel
-            loss = (1e1 * overall_reprojection_loss) + (1e3 * intersection_loss) + 0 * distortion_loss + (1e1 * closest_distance_loss) + (5e3 * pairwise_distance_loss)
+            loss = (1e1 * overall_reprojection_loss) + (1e10 * intersection_loss) + 0 * distortion_loss + (1e2 * closest_distance_loss) + (1e4 * pairwise_distance_loss) 
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
@@ -527,7 +558,7 @@ def validate(model, val_loader, criterion):
             distortion_loss = (dist_penalty_1.sum() + dist_penalty_2.sum()) / 2
             intersection_loss = (int_penalty_1.sum() + int_penalty_2.sum()) / 2
             closest_distance_loss = closest_distance.sum()
-            loss = (1e1 * overall_reprojection_loss) + (1e3 * intersection_loss) + (0 * distortion_loss) + (1e1 * closest_distance_loss) + (5e3 * pairwise_distance_loss)
+            loss = (1e1 * overall_reprojection_loss) + (1e10 * intersection_loss) + (0 * distortion_loss) + (1e1 * closest_distance_loss) + (5e3 * pairwise_distance_loss)
 
             total_loss += loss.item()
             #virtual_loss += recon_virtual_loss.item()
@@ -566,13 +597,14 @@ target_coordinates_stacked = torch.hstack((target_coordinates[:3,:], target_coor
 triangulation_loss = euclidean_distance(
                         recon_3D, target_coordinates_stacked
                     ).mean()    
-print(f'Initial real pixel reprojection error: {recon_real_loss}, initial closest distance: {closest_distance.mean()}, initial pairwise distance error: {pairwise_distance_loss}')
+print(f'Initial real pixel reprojection error: {recon_real_loss}, initial closest distance: {closest_distance.mean()}, initial pairwise distance error: {pairwise_distance_loss}, initial triangulation error: {triangulation_loss}')
 yaml_results['initialization']['status'] = 'passed'
 yaml_results['initialization']['repr_error_real'] = recon_real_loss.item()
 yaml_results['initialization']['closest_distance_error'] = closest_distance.mean().item()
 yaml_results['initialization']['pairwise_distance_error'] = pairwise_distance_loss.item()
-with open(log_file, 'w') as f:
-    yaml.safe_dump(yaml_results, f, sort_keys=False)
+if not load_checkpoint:
+    with open(log_file, 'w') as f:
+        yaml.safe_dump(yaml_results, f, sort_keys=False)
 
 #%% Training setup
 batch_size=1024
@@ -596,6 +628,7 @@ pairwise_distance_train_val = pairwise_distance[rand_ind[test_dataset_size:]]
 dataset = CalibrationDataset(pixels_virtual_two_cams, pixels_real_two_cams, target_coordinates, pairwise_distance_train_val)
 train_size = int(0.8 * len(dataset))  # 80% for training
 val_size = len(dataset) - train_size   # Remaining 20% for validation
+print(f'Splitting grid point pairs into {train_size} : {val_size} ratio')
 pixels_virtual_two_cams_train, pixels_virtual_two_cams_val = random_split(
     dataset, [train_size, val_size]
     )
@@ -607,7 +640,6 @@ optimizer = optim.Adam(arena.parameters(), lr=1e-2
 criterion = torch.nn.MSELoss()
 arena.to(device)
 pixels_virtual_two_cams = pixels_virtual_two_cams.to(device)
-
 
 
 # %% Training loop
@@ -750,12 +782,13 @@ for epoch in tqdm(range(0, num_epochs)):
 PATH = f'{model_checkpoint_dir}/best_checkpoint.pth'
 checkpoint = torch.load(PATH, weights_only=True)
 arena.load_state_dict(checkpoint['model_state_dict'],strict=False)
+
 arena.virtual_proj_prob_thresh = 1.
 # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
 output = arena(pixels_virtual_two_cams_test, pixels_real_two_cams_test)
 recon_3D_test, closest_dist_test, recon_pixels_1, recon_pixels_2, recon_pixels_1_to_virtual, recon_pixels_2_to_virtual, recon_3D_real, real_3D_virtual, dist_penalty_1, dist_penalty_2, int_penalty_1, int_penalty_2, pairwise_distance_test_ = output['recon_3D'], output['closest_distance'], output['recon_pixels_1'], output['recon_pixels_2'], output['recon_pixels_1_to_virtual'], output['recon_pixels_2_to_virtual'], output['recon_3D_real'], output['recon_3D_virtual'], output['distortion_penalty_cam_0'], output['distortion_penalty_cam_1'], output['intersection_penalty_1'], output['intersection_penalty_2'], output['pairwise_distance']
-pairwise_distance_loss = torch.abs(pairwise_distance_test_ - pairwise_distance_test).mean()
+pairwise_distance_loss = torch.abs(pairwise_distance_test_ - pairwise_distance_test)
 target_coordinates_test_stacked = torch.hstack((target_coordinates_test[:3,:], target_coordinates_test[3:,:]))
 triangulation_loss = euclidean_distance(
     recon_3D_test, target_coordinates_test_stacked
@@ -773,6 +806,7 @@ print(f'Triangulation loss: {triangulation_loss}')
 print(f'Distortion penalty: {(dist_penalty_1 + dist_penalty_2).mean()}')
 print(f'Real pixel loss: {recon_real_loss.mean()}')
 print(f'Pairwise distance loss: {pairwise_distance_loss.mean()}')
+print(f'Intersection penalty: {(int_penalty_1 + int_penalty_2).mean() / 2}')
 
 reprojection_loss_1 = euclidean_distance(
     recon_pixels_1, pixels_real_cam_0_test_stacked
@@ -794,28 +828,30 @@ if (recon_pixels_1_to_virtual is not None) and (recon_pixels_2_to_virtual is not
     )
     print(f'Reprojection error for two virtual cameras: {reprojection_loss_1_to_virtual.mean()}, {reprojection_loss_2_to_virtual.mean()}')
 
-yaml_results['training']['status'] = 'passed'
-yaml_results['training']['repr_error_real_cam_0'] = reprojection_loss_1.mean().item()
-yaml_results['training']['repr_error_real_cam_1'] = reprojection_loss_2.mean().item()
-yaml_results['training']['repr_error_virtual_cam_0'] = reprojection_loss_1_to_virtual.mean().item()
-yaml_results['training']['repr_error_virtual_cam_1'] = reprojection_loss_2_to_virtual.mean().item()
-yaml_results['training']['pairwise_distance_error'] = pairwise_distance_loss.mean().item()
-yaml_results['training']['triangulation_error'] = triangulation_loss.item()
-with open(log_file, 'w') as f:
-    yaml.safe_dump(yaml_results, f, sort_keys=False)
+if not load_checkpoint:
+    yaml_results['training']['status'] = 'passed'
+    yaml_results['training']['repr_error_real_cam_0'] = reprojection_loss_1.mean().item()
+    yaml_results['training']['repr_error_real_cam_1'] = reprojection_loss_2.mean().item()
+    yaml_results['training']['repr_error_virtual_cam_0'] = reprojection_loss_1_to_virtual.mean().item()
+    yaml_results['training']['repr_error_virtual_cam_1'] = reprojection_loss_2_to_virtual.mean().item()
+    yaml_results['training']['pairwise_distance_error'] = pairwise_distance_loss.mean().item()
+    yaml_results['training']['triangulation_error'] = triangulation_loss.item()
+
+    with open(log_file, 'w') as f:
+        yaml.safe_dump(yaml_results, f, sort_keys=False)
 
 plt.figure(figsize=(15,15))
 plt.scatter(
     recon_pixels_1[0,:].cpu().detach().numpy(),
     recon_pixels_1[1,:].cpu().detach().numpy(),
-    color='g',
+    color='r',
     marker='o',
     label='Estimate',
 )
 plt.scatter(
     pixels_real_cam_0_test_stacked[0,:].cpu().detach().numpy(),
     pixels_real_cam_0_test_stacked[1,:].cpu().detach().numpy(),
-    color='r',
+    color='b',
     marker='x',
     label='Ground truth',
 )
@@ -833,14 +869,14 @@ plt.figure(figsize=(15,15))
 plt.scatter(
     recon_pixels_2[0,:].cpu().detach().numpy(),
     recon_pixels_2[1,:].cpu().detach().numpy(),
-    color='g',
+    color='r',
     marker='o',
     label='Estimate',
 )
 plt.scatter(
     pixels_real_cam_1_test_stacked[0,:].cpu().detach().numpy(),
     pixels_real_cam_1_test_stacked[1,:].cpu().detach().numpy(),
-    color='r',
+    color='b',
     marker='x',
     label='Ground truth',
 )
@@ -855,7 +891,7 @@ plt.legend(fontsize=18)
 plt.savefig(f'{model_checkpoint_dir}/reprojection_loss_2.png')
 
 
-#%%
+#%% 3-D plot
 fig = plt.figure(figsize=(15,15))
 ax = fig.add_subplot(projection='3d')
 ax.scatter(
@@ -870,7 +906,7 @@ ax.scatter(
     recon_3D_test[0,:].cpu().detach().numpy(),
     recon_3D_test[1,:].cpu().detach().numpy(),
     recon_3D_test[2,:].cpu().detach().numpy(),
-    color='g',
+    color='b',
     s=5,
     label='Estimate',
 )
