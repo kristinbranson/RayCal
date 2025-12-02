@@ -3,6 +3,7 @@
 
 %% User-defined parameters
 % exp_id = 49;
+display('Running MATLAB script to estimate dots for calibrating camera intrinsics')
 makeVideo = false;
 analyze_all_cams = false;
 tilted_cameras = true;

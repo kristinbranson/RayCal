@@ -1,5 +1,5 @@
 %% User inputs
-% exp_id = 61;
+
 cam_names = {'cam_0', 'cam_1'};
 mean_reprojection_error = 0.07; % Reprojection error of real cameras, to decide a threshold to identify stationary targets
 frame_rate = 100;
@@ -298,6 +298,8 @@ stereoParams_export.TranslationOfCamera2 = stereoParams.TranslationOfCamera2;
 stereoParams_export.RotationOfCamera2 = stereoParams.RotationOfCamera2;
 stereoParams_export.CameraParameters1K = stereoParams.CameraParameters1.K;
 stereoParams_export.CameraParameters2K = stereoParams.CameraParameters2.K;
+stereoParams_export.RadialDistortionOfCamera1 = stereoParams.CameraParameters1.RadialDistortion;
+stereoParams_export.RadialDistortionOfCamera2 = stereoParams.CameraParameters1.RadialDistortion;
 
 %% 
 crop_x = [270, 975];
@@ -325,7 +327,7 @@ save([results_dir, calibration_target_type, '_data.mat'], 'input_data', 'output_
 
 %% Gather pairwise distances (only applicable for dotted grid)
 num_samples = 25000;
-repr_err_thresh = 0.25;
+repr_err_thresh = 0.2;
 if strcmp(calibration_target_type, 'dotted_grid')
     num_images_used = min(500, length(worldPoints));
     [pairwise_distances, output_data_cam_0_pairwise, output_data_cam_1_pairwise, ...
@@ -343,8 +345,10 @@ if strcmp(calibration_target_type, 'dotted_grid')
 end
 
 % Filter bad reprojection errors (likely from bad 2-D detections)
-good_idx = find(any(acceptable_reprojection_errors_pairwise < repr_err_thresh, 2));
+bad_idx = any(acceptable_reprojection_errors_pairwise > repr_err_thresh, 2);
+good_idx = find(~bad_idx);
 rand_idx = randperm(length(good_idx));
+num_samples = min(num_samples, length(good_idx));
 rand_idx = rand_idx(1:num_samples);
 good_idx = good_idx(rand_idx);
 
