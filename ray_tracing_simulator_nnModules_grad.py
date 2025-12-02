@@ -754,7 +754,8 @@ class ReflectingPlane(Plane, nn.Module):
 #%% Camera  class
 class Camera(Plane, nn.Module):
     """
-    Define a pinhole camera.
+    NOTE: This is deprecated. Use the EfficientCamera class instead
+    Define a pinhole camera with lens distortion parameters
     Parameters:
     - aperture ((3,1) tensor): Aperture of the camera (0,0,0) for the primary camera
     - width (float): Width of the camera sensor in mm
@@ -976,7 +977,7 @@ class Camera(Plane, nn.Module):
 #%% Camera  class
 class EfficientCamera(Plane, nn.Module):
     """
-    Define a pinhole camera.
+    Define a pinhole camera with lens distortion parameters
     Parameters:
     - aperture ((3,1) tensor): Aperture of the camera (0,0,0) for the primary camera
     - width (float): Width of the camera sensor in mm
