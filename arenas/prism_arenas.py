@@ -611,6 +611,9 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
             dim=0
         )
         """
+
+        """
+        Implement this for using one random camera pair to  triangulate points, instead of using pairs across all four cameras and using the average 3-D point across all pairs
         rand_cam_pair = torch.rand(1)
         if rand_cam_pair < 1/5:
             recon_3D = recon_3D_virtual
@@ -627,7 +630,8 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
         elif rand_cam_pair >= 4/5 and rand_cam_pair < 5/5:
             recon_3D = recon_3D_21
             closest_distance = closest_distance_21
-        
+        """
+
         #if self.virtual_proj_prob_thresh == 1.:
         if 1:
             recon_3D = torch.nanmean(
@@ -648,7 +652,7 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
         pairwise_distance = euclidean_distance(
             recon_3D[:, :num_points],
             recon_3D[:, num_points:]
-        )        
+            )
         recon_pixels_1_undistorted = self.camera1.reproject(recon_3D, R1, T1)
         recon_pixels_1 = self.camera1.distort_pixels_classical(recon_pixels_1_undistorted, self.radial_dist_coeffs_cam_0)
         recon_pixels_2_undistorted = camera2.reproject(recon_3D, R2, T2)
