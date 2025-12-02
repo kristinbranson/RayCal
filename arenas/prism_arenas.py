@@ -422,24 +422,21 @@ class Arena_reprojection_loss_two_cameras_prism_grid_distances(nn.Module):
 
         # Camera initialization      
         principal_point_pixel_cam_0 = nn.Parameter(
-            torch.tensor(principal_point_pixel_cam_0, dtype=datatype).reshape(2,1),
-            requires_grad=True,
-        )  
-
+            principal_point_pixel_cam_0.clone().detach().requires_grad_(True).to(datatype).reshape(2,1),
+        )
+        
         principal_point_pixel_cam_1 = nn.Parameter(
-            torch.tensor(principal_point_pixel_cam_1, dtype=datatype).reshape(2,1),
-            requires_grad=True,
-        )  
+                principal_point_pixel_cam_1.clone().detach().requires_grad_(True).to(datatype).reshape(2,1),
+        )
 
+        
         focal_length_cam_0 = nn.Parameter(
-            torch.tensor(focal_length_cam_0, dtype=datatype),
-            requires_grad=True,
-        )
-
+                focal_length_cam_0.clone().detach().requires_grad_(True).to(datatype)
+                )
+        
         focal_length_cam_1 = nn.Parameter(
-            torch.tensor(focal_length_cam_1, dtype=datatype),
-            requires_grad=True,
-        )
+                focal_length_cam_1.clone().detach().requires_grad_(True).to(datatype)
+                )
 
         self.r1 = nn.Parameter(
             torch.tensor(1e-6, dtype=datatype),
