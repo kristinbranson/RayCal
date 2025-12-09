@@ -11,7 +11,7 @@ fig, ax1 = plt.subplots()
 ax2 = ax1.twinx()  # Create a second y-axis
 
 dof_focal_length = []
-for fi, f in enumerate(np.array([25])):
+for fi, f in enumerate(np.array([25, 50])):
     #c = 5e-3  # mm. No use having pixel size better than this
     res_array = np.arange(0.01, 20, 0.001)
 
@@ -26,26 +26,27 @@ for fi, f in enumerate(np.array([25])):
         theta_min = np.arcsin(0.61 * lambda_ / res)
         u_min = f + 1e-10
         u_max = D/2/np.tan(theta_min)
-        c = 5e-3
-        #minimum_m_possible = c / res 
-        #maximum_u_possible = f / (1 + 1/minimum_m_possible)
-        #if maximum_u_possible < u_max:
-        #    u_max = maximum_u_possible
-
-        if theta_min > theta_max:
+        c = 5e-10
+        minimum_m_possible = -2 * c / res 
+        maximum_u_possible = f * (1 - 1/minimum_m_possible)
+        if maximum_u_possible < u_max:
+            u_max = maximum_u_possible
+            print(f'u_min: {u_min} , u_max: {u_max} for focal length {f}')
+        if u_min > u_max:
             res_limit_hit = 1
             print(f'Cannot resolve to the required accuracy {res} with focal length {f}')
-            break
+            
         #u_test_array = np.arange(u_min, u_max, 0.01)
         u_test_array = np.linspace(u_min, u_max, 10)
         dof_over_u = np.zeros_like(u_test_array)
         for ui, u_test in enumerate(u_test_array):
+            if res_limit_hit:
+                break
             D_opt = 2 * np.tan(theta_min) * u_test # To meet the resolution criteria, you have to make sure you satisfy theta_min at any u
             N = f / D_opt
             v_test = (u_test * f) / (u_test - f)
             m = v_test / u_test
-            c = 2 * res * m
-            c = 5e-3
+            #c = 2 * res * m
             H = f**2 / (N*c) + f
             if u_test > H:
                 print(f'hyperfocal distance found for resolution {res}')
@@ -83,8 +84,8 @@ ax1.set_xlim([0, 2.])
 ax1.grid(True)
 ax1.grid(True, which='major', linestyle='-', linewidth=0.6, alpha=0.3)
 ax1.grid(True, which='minor', linestyle='-', linewidth=0.5, color='gray', alpha=0.3)
-id_fly = np.argwhere(np.isclose(res_array, 0.05, atol=1e-3)).flatten()
-id_mouse = np.argwhere(np.isclose(res_array, 1.8, atol=1e-3)).flatten()
+id_fly = np.argwhere(np.isclose(res_array, 0.05, atol=1e-3)).flatten()[0]
+id_mouse = np.argwhere(np.isclose(res_array, 1.8, atol=1e-3)).flatten()[0]
 ax1.scatter(res_array[id_fly], dof[id_fly], color='r')
 ax1.scatter(res_array[id_mouse], dof[id_mouse], color='r')
 ax1.set_xlabel('Spatial Resolution (mm)', fontsize=axis_label_font_size)
