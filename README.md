@@ -9,7 +9,7 @@ The repository is under development.
 
 A tutorial notebook demonstrating the core ray tracing primitives:
 
-- **Rays**: Initialize and manipulate light rays in 3D space
+- **Rays**: Initialize and manipulate light rays in 3-D space
 - **Reflecting Planes**: Simulate mirror reflections
 - **Refracting Planes**: Simulate refraction at material boundaries (e.g., air-glass interface)
 - **Prism-Mirror**: Model complex prism geometries with multiple refracting/reflecting surfaces

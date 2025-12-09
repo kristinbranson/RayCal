@@ -1,6 +1,6 @@
 # Template for this code was produced using GPT-4o mini
 #!/bin/bash
-source config.log
+source paths.log
 
 # Check if a directory argument is provided
 if [ "$#" -lt 1 ]; then
